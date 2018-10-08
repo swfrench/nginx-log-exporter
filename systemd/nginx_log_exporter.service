@@ -1,0 +1,12 @@
+[Unit]
+Description=nginx log exporter
+
+[Service]
+User=nginx_log_exporter
+EnvironmentFile=/etc/default/nginx_log_exporter
+ExecStart=/usr/sbin/nginx-log-exporter $OPTIONS
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
