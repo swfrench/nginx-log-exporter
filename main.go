@@ -2,9 +2,11 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"log/syslog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/swfrench/nginx-log-exporter/consumer"
@@ -27,40 +29,46 @@ var (
 
 	useSyslog = flag.Bool("use_syslog", false, "If true, emit info logs to syslog.")
 
-	useMetadataService = flag.Bool("use_metadata_service", true, "If true, use the GCE instance metadata service to fetch instance name and zone name, which will be added as metric labels.")
+	useMetadataServiceLabels = flag.Bool("use_metadata_service_labels", false, "If true, use the GCE instance metadata service to fetch \"instance_id\" and \"zone\" labels, which will be applied to all metrics.")
 
-	manualInstanceName = flag.String("manual_instance_name", "", "Instance name to use when metadata service is disabled or OnGCE() returns false.")
-
-	manualZoneName = flag.String("manual_zone_name", "", "Zone name to use when metadata service is disabled or OnGCE() returns false.")
+	customLabels = flag.String("custom_labels", "", "A comma-separated, key=value list of additional labels to apply to all metrics.")
 )
 
-func getLabelsFromMetadata() map[string]string {
+func parseCustomLabels() (map[string]string, error) {
 	labels := make(map[string]string)
 
-	if metadata.OnGCE() && *useMetadataService {
-		instance, err := metadata.InstanceName()
-		if err != nil {
-			log.Fatalf("Could not retrieve instance name from metadata service: %v", err)
+	if len(*customLabels) > 0 {
+		for _, elem := range strings.Split(*customLabels, ",") {
+			if pair := strings.Split(elem, "="); len(pair) == 2 {
+				labels[pair[0]] = pair[1]
+			} else {
+				return nil, fmt.Errorf("Could not parse key=value pair: %v", elem)
+			}
 		}
-		labels["instance_id"] = instance
-
-		zone, err := metadata.Zone()
-		if err != nil {
-			log.Fatalf("Could not retrieve zone name from metadata service: %v", err)
-		}
-		labels["zone"] = zone
-	} else {
-		if *manualInstanceName == "" {
-			log.Fatalf("Metadata service is disabled or not available, but default_instance_name is not set.")
-		}
-		labels["instance_id"] = *manualInstanceName
-
-		if *manualZoneName == "" {
-			log.Fatalf("Metadata service is disabled or not available, but default_zone_name is not set.")
-		}
-		labels["zone"] = *manualZoneName
 	}
-	return labels
+
+	return labels, nil
+}
+
+func getLabelsFromMetadataService() (map[string]string, error) {
+	if !metadata.OnGCE() {
+		return nil, fmt.Errorf("Metadata service is unavailable when not on GCE")
+	}
+
+	instance, err := metadata.InstanceName()
+	if err != nil {
+		return nil, fmt.Errorf("Could not retrieve instance name from metadata service: %v", err)
+	}
+
+	zone, err := metadata.Zone()
+	if err != nil {
+		return nil, fmt.Errorf("Could not retrieve zone name from metadata service: %v", err)
+	}
+
+	return map[string]string{
+		"instance_id": instance,
+		"zone":        zone,
+	}, nil
 }
 
 func main() {
@@ -79,7 +87,20 @@ func main() {
 		log.Fatalf("Could not create tailer for %s: %v", *accessLogPath, err)
 	}
 
-	labels := getLabelsFromMetadata()
+	labels, err := parseCustomLabels()
+	if err != nil {
+		log.Fatalf("Could not parse custom labels: %v", err)
+	}
+
+	if *useMetadataServiceLabels {
+		metadataLabels, err := getLabelsFromMetadataService()
+		if err != nil {
+			log.Fatalf("Could not fetch labels from metadata service: %v", err)
+		}
+		for key := range metadataLabels {
+			labels[key] = metadataLabels[key]
+		}
+	}
 
 	log.Printf("Creating exporter for resource: %v", labels)
 
