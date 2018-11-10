@@ -13,14 +13,15 @@ straightforward to add more.
 
 ## Requirements
 
-### Dependencies
+### Build
 
 Run:
 
-    go get -u cloud.google.com/go/compute/metadata
-    go get -u github.com/prometheus/client_golang/prometheus
+    go get -u github.com/swfrench/nginx-log-exporter
 
-to pull the Metadata service and prometheus go client into your `GOPATH`.
+to build the exporter, which should now be in `$GOPATH/bin` (this will also
+pull in transitive dependencies, such as the Metadata service and prometheus go
+client).
 
 ### Log format
 
