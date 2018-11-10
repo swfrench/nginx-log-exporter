@@ -40,3 +40,6 @@ It is expected that nginx has been configured to write logs as json with ISO
     access_log /var/log/nginx/access.log json_combined;
 
 As noted above, only the `time` and `status` fields are examined for now.
+
+**Note:** The `escape` parameter for `log_format` is only supported by nginx
+1.11.8 and later.
