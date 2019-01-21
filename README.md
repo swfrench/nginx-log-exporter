@@ -38,7 +38,7 @@ It is expected that nginx has been configured to write logs as json with ISO
         '"request": "$request", '
         '"status": "$status", '
         '"body_bytes_sent": "$body_bytes_sent", '
-        '"request_time": "$request_time", '
+        '"request_time": $request_time, '
         '"http_referrer": "$http_referer", '
         '"http_user_agent": "$http_user_agent" }';
     access_log /var/log/nginx/access.log json_combined;
