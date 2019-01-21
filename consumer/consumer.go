@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/swfrench/nginx-log-exporter/exporter"
@@ -18,8 +20,9 @@ const (
 )
 
 type logLine struct {
-	Time   string
-	Status string
+	Time    string
+	Request string
+	Status  string
 }
 
 // Consumer implements periodic polling of the supplied nginx access log
@@ -29,22 +32,29 @@ type Consumer struct {
 	Period   time.Duration
 	tailer   tailer.TailerT
 	exporter exporter.ExporterT
+	paths    map[string]bool
 	stop     chan bool
 }
 
 // NewConsumer returns a Consumer polling the supplied tailer and reporting to
 // the supplied exporter with the specified period.
-func NewConsumer(period time.Duration, tailer tailer.TailerT, exporter exporter.ExporterT) *Consumer {
-	return &Consumer{
+func NewConsumer(period time.Duration, tailer tailer.TailerT, exporter exporter.ExporterT, paths []string) *Consumer {
+	c := &Consumer{
 		Period:   period,
 		tailer:   tailer,
 		exporter: exporter,
+		paths:    make(map[string]bool),
 		stop:     make(chan bool, 1),
 	}
+	for _, path := range paths {
+		c.paths[path] = true
+	}
+	return c
 }
 
 func (c *Consumer) consumeBytes(b []byte) error {
 	statusCounts := make(map[string]float64)
+	detailedStatusCounts := make(map[string]exporter.DetailedStatusCount)
 
 	scanner := bufio.NewScanner(bytes.NewReader(b))
 	for scanner.Scan() {
@@ -64,16 +74,41 @@ func (c *Consumer) consumeBytes(b []byte) error {
 			continue
 		}
 
-		if t.After(c.exporter.StatusCounterCreationTime()) {
+		if t.After(c.exporter.CreationTime()) {
 			if tot, ok := statusCounts[line.Status]; ok {
 				statusCounts[line.Status] = 1 + tot
 			} else {
 				statusCounts[line.Status] = 1
 			}
+
+			if requestFields := strings.Fields(line.Request); len(requestFields) != 3 {
+				log.Printf("Skipping malformed request field: %v", line.Request)
+			} else if u, err := url.ParseRequestURI(requestFields[1]); err != nil {
+				log.Printf("Skipping malformed request path: %v", requestFields[1])
+			} else if _, ok := c.paths[u.Path]; ok {
+				key := strings.Join([]string{line.Status, requestFields[0], u.Path}, ":")
+				if tot, ok := detailedStatusCounts[key]; ok {
+					tot.Count += 1
+					detailedStatusCounts[key] = tot
+				} else {
+					detailedStatusCounts[key] = exporter.DetailedStatusCount{
+						Count:  1,
+						Status: line.Status,
+						Path:   u.Path,
+						Method: requestFields[0],
+					}
+				}
+			}
 		}
 	}
 
-	return c.exporter.IncrementStatusCounter(statusCounts)
+	if err := c.exporter.IncrementStatusCounter(statusCounts); err != nil {
+		return fmt.Errorf("Call to IncrementStatusCounter failed: %v", err)
+	}
+	if err := c.exporter.IncrementDetailedStatusCounter(detailedStatusCounts); err != nil {
+		return fmt.Errorf("Call to IncrementDetailedStatusCounter failed: %v", err)
+	}
+	return nil
 }
 
 // Run performs periodic polling and exporting. It will only return on error or

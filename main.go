@@ -32,6 +32,8 @@ var (
 	useMetadataServiceLabels = flag.Bool("use_metadata_service_labels", false, "If true, use the GCE instance metadata service to fetch \"instance_id\" and \"zone\" labels, which will be applied to all metrics.")
 
 	customLabels = flag.String("custom_labels", "", "A comma-separated, key=value list of additional labels to apply to all metrics.")
+
+	monitoredPaths = flag.String("monitored_paths", "", "A comma-separated list of paths for which response metrics will be exported at path/method granularity. Paths are matched verbatim to the start of the first non-path expression (query string, fragment, etc.). Elements must be non-empty and contain no whitespace.")
 )
 
 func parseCustomLabels() (map[string]string, error) {
@@ -48,6 +50,22 @@ func parseCustomLabels() (map[string]string, error) {
 	}
 
 	return labels, nil
+}
+
+func parseMonitoredPaths() ([]string, error) {
+	var paths []string
+
+	if len(*monitoredPaths) > 0 {
+		for _, elem := range strings.Split(*monitoredPaths, ",") {
+			if len(elem) > 0 && len(strings.Fields(elem)) == 1 {
+				paths = append(paths, elem)
+			} else {
+				return nil, fmt.Errorf("Monitored paths must be non-empty and contain no whitespace.")
+			}
+		}
+	}
+
+	return paths, nil
 }
 
 func getLabelsFromMetadataService() (map[string]string, error) {
@@ -102,6 +120,11 @@ func main() {
 		}
 	}
 
+	paths, err := parseMonitoredPaths()
+	if err != nil {
+		log.Fatalf("Could not parse monitored paths: %v", err)
+	}
+
 	log.Printf("Creating exporter for resource: %v", labels)
 
 	e := exporter.NewExporter(labels)
@@ -113,7 +136,7 @@ func main() {
 		log.Fatal(http.ListenAndServe(*exportAddress, nil))
 	}()
 
-	c := consumer.NewConsumer(*logPollingPeriod, t, e)
+	c := consumer.NewConsumer(*logPollingPeriod, t, e, paths)
 
 	log.Printf("Starting consumer for %s", *accessLogPath)
 
