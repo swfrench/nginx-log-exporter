@@ -53,7 +53,7 @@ func NewExporter(labels map[string]string) *Exporter {
 	e.latencyHistogram = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name: "http_response_time",
-			Help: "Response time by status code",
+			Help: "Response time (seconds) by status code",
 		},
 		baseLabelKeys,
 	)
@@ -121,7 +121,7 @@ func (e *Exporter) IncrementDetailedStatusCounter(counts map[string]DetailedStat
 
 // RecordLatencyObservations updates the response latency by status code
 // histogram metric.  Single argument is a map from status (string) =>
-// observations.
+// response time observations (in seconds).
 func (e *Exporter) RecordLatencyObservations(obs map[string][]float64) error {
 	labels := make([]string, len(e.labelValues)+1)
 	copy(labels, e.labelValues)

@@ -121,7 +121,7 @@ func TestLatencyHistogramUpdates(t *testing.T) {
 	})
 
 	const expected = `
-		# HELP http_response_time Response time by status code
+		# HELP http_response_time Response time (seconds) by status code
 		# TYPE http_response_time histogram
 		http_response_time_bucket{foo="bar",status_code="200",le="0.005"} 0.0
 		http_response_time_bucket{foo="bar",status_code="200",le="0.01"} 2.0
