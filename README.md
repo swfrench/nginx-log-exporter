@@ -3,15 +3,17 @@
 ![master build status](https://travis-ci.org/swfrench/nginx-log-exporter.svg?branch=master)
 
 A small utility for exporting metrics inferred from nginx access logs to
-Prometheus. Largely a re-spin of https://github.com/swfrench/nginx-log-consumer
-for the (much simpler) pull-based API of Prometheus.
+[Prometheus](https://prometheus.io).
 
-This is still pretty GCE-flavored, in that the exporter will attempt to read
-the VM instance name and zone from the Metadata Service at start. If not on
-GCE, these values can be set manually.
+Similar in concept to
+[nginx-log-consumer](https://github.com/swfrench/nginx-log-consumer), but
+Prometheus flavored, rather than tied to the Stackdriver Monitoring API.
 
-Currently only supports HTTP response status code counts, but it will be pretty
-straightforward to add more.
+## Metrics
+
+Currently, only HTTP response status code counts are supported (in both summary
+and "detailed" form for whitelisted paths; see `-monitored_paths`). It should
+be pretty straightforward to add more metrics, however (e.g. request latency).
 
 ## Requirements
 
@@ -22,7 +24,7 @@ Run:
     go get -u github.com/swfrench/nginx-log-exporter
 
 to build the exporter, which should now be in `$GOPATH/bin` (this will also
-pull in transitive dependencies, such as the Metadata service and prometheus go
+pull in transitive dependencies, such as the Metadata service and Prometheus go
 client).
 
 ### Log format
@@ -41,7 +43,14 @@ It is expected that nginx has been configured to write logs as json with ISO
         '"http_user_agent": "$http_user_agent" }';
     access_log /var/log/nginx/access.log json_combined;
 
-As noted above, only the `time` and `status` fields are examined for now.
+For now, only the `time`, `status`, and (optionally) `request` (for detailed
+paths) are examined.
 
 **Note:** The `escape` parameter for `log_format` is only supported by nginx
 1.11.8 and later.
+
+## Running on GCE
+
+If running on GCE, you can set `-use_metadata_service_labels` to pull the
+instance name and zone from the Metadata service, which will in turn be added
+to your metrics.
