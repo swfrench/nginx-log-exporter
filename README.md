@@ -1,5 +1,7 @@
 # Export metrics from nginx access logs to Prometheus
 
+![master build status](https://travis-ci.org/swfrench/nginx-log-exporter.svg?branch=master)
+
 A small utility for exporting metrics inferred from nginx access logs to
 Prometheus. Largely a re-spin of https://github.com/swfrench/nginx-log-consumer
 for the (much simpler) pull-based API of Prometheus.
