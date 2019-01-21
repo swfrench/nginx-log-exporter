@@ -20,9 +20,16 @@ const (
 )
 
 type logLine struct {
-	Time    string
-	Request string
-	Status  string
+	Time        string  `json:"time"`
+	Request     string  `json:"request"`
+	Status      string  `json:"status"`
+	RequestTime float64 `json:"request_time"`
+}
+
+type logStats struct {
+	statusCounts         map[string]float64
+	latencyObservations  map[string][]float64
+	detailedStatusCounts map[string]exporter.DetailedStatusCount
 }
 
 // Consumer implements periodic polling of the supplied nginx access log
@@ -52,15 +59,52 @@ func NewConsumer(period time.Duration, tailer tailer.TailerT, exporter exporter.
 	return c
 }
 
+func (c *Consumer) consumeLine(line *logLine, stats *logStats) {
+	if tot, ok := stats.statusCounts[line.Status]; ok {
+		stats.statusCounts[line.Status] = 1 + tot
+	} else {
+		stats.statusCounts[line.Status] = 1
+	}
+
+	if line.RequestTime >= 0 {
+		stats.latencyObservations[line.Status] = append(stats.latencyObservations[line.Status], line.RequestTime)
+	}
+
+	if requestFields := strings.Fields(line.Request); len(requestFields) != 3 {
+		log.Printf("Skipping malformed request field: %v", line.Request)
+	} else if u, err := url.ParseRequestURI(requestFields[1]); err != nil {
+		log.Printf("Skipping malformed request path: %v", requestFields[1])
+	} else if _, ok := c.paths[u.Path]; ok {
+		key := strings.Join([]string{line.Status, requestFields[0], u.Path}, ":")
+		if tot, ok := stats.detailedStatusCounts[key]; ok {
+			tot.Count += 1
+			stats.detailedStatusCounts[key] = tot
+		} else {
+			stats.detailedStatusCounts[key] = exporter.DetailedStatusCount{
+				Count:  1,
+				Status: line.Status,
+				Path:   u.Path,
+				Method: requestFields[0],
+			}
+		}
+	}
+}
+
 func (c *Consumer) consumeBytes(b []byte) error {
-	statusCounts := make(map[string]float64)
-	detailedStatusCounts := make(map[string]exporter.DetailedStatusCount)
+	stats := &logStats{
+		statusCounts:         make(map[string]float64),
+		latencyObservations:  make(map[string][]float64),
+		detailedStatusCounts: make(map[string]exporter.DetailedStatusCount),
+	}
 
 	scanner := bufio.NewScanner(bytes.NewReader(b))
 	for scanner.Scan() {
 		lineBytes := scanner.Bytes()
 
-		line := &logLine{}
+		line := &logLine{
+			// Sentinal value in case request time was not present.
+			RequestTime: -1,
+		}
 
 		err := json.Unmarshal(lineBytes, line)
 		if err != nil {
@@ -75,38 +119,18 @@ func (c *Consumer) consumeBytes(b []byte) error {
 		}
 
 		if t.After(c.exporter.CreationTime()) {
-			if tot, ok := statusCounts[line.Status]; ok {
-				statusCounts[line.Status] = 1 + tot
-			} else {
-				statusCounts[line.Status] = 1
-			}
-
-			if requestFields := strings.Fields(line.Request); len(requestFields) != 3 {
-				log.Printf("Skipping malformed request field: %v", line.Request)
-			} else if u, err := url.ParseRequestURI(requestFields[1]); err != nil {
-				log.Printf("Skipping malformed request path: %v", requestFields[1])
-			} else if _, ok := c.paths[u.Path]; ok {
-				key := strings.Join([]string{line.Status, requestFields[0], u.Path}, ":")
-				if tot, ok := detailedStatusCounts[key]; ok {
-					tot.Count += 1
-					detailedStatusCounts[key] = tot
-				} else {
-					detailedStatusCounts[key] = exporter.DetailedStatusCount{
-						Count:  1,
-						Status: line.Status,
-						Path:   u.Path,
-						Method: requestFields[0],
-					}
-				}
-			}
+			c.consumeLine(line, stats)
 		}
 	}
 
-	if err := c.exporter.IncrementStatusCounter(statusCounts); err != nil {
+	if err := c.exporter.IncrementStatusCounter(stats.statusCounts); err != nil {
 		return fmt.Errorf("Call to IncrementStatusCounter failed: %v", err)
 	}
-	if err := c.exporter.IncrementDetailedStatusCounter(detailedStatusCounts); err != nil {
+	if err := c.exporter.IncrementDetailedStatusCounter(stats.detailedStatusCounts); err != nil {
 		return fmt.Errorf("Call to IncrementDetailedStatusCounter failed: %v", err)
+	}
+	if err := c.exporter.RecordLatencyObservations(stats.latencyObservations); err != nil {
+		return fmt.Errorf("Call to RecordLatencyObservations failed: %v", err)
 	}
 	return nil
 }

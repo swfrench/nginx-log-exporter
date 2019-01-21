@@ -1,3 +1,7 @@
+// TODO(swfrench): Using testutil and matching exported metric literals is
+// error prone. Should probably just mock out the metric types (and provide
+// mock builders, rather than calling NewCounterVec etc. in exporter).
+
 package exporter_test
 
 import (
@@ -94,6 +98,76 @@ func TestDetailedStatusCounterUpdates(t *testing.T) {
 	`
 
 	if err := testutil.CollectAndCompare(e.DetailedStatusCounterMetric(), strings.NewReader(expected)); err != nil {
+		t.Errorf("Collected metrics and / or metadata do not match expectation:\n%s", err)
+	}
+	if !e.Unregister() {
+		t.Fatalf("Failed to unregister one or more exported metrics.")
+	}
+}
+
+func TestLatencyHistogramUpdates(t *testing.T) {
+	e := exporter.NewExporter(map[string]string{
+		"foo": "bar",
+	})
+
+	e.RecordLatencyObservations(map[string][]float64{
+		"200": {0.01, 0.02},
+		"403": {0.01},
+	})
+
+	e.RecordLatencyObservations(map[string][]float64{
+		"200": {0.01},
+		"500": {0.10},
+	})
+
+	const expected = `
+		# HELP http_response_time Response time by status code
+		# TYPE http_response_time histogram
+		http_response_time_bucket{foo="bar",status_code="200",le="0.005"} 0.0
+		http_response_time_bucket{foo="bar",status_code="200",le="0.01"} 2.0
+		http_response_time_bucket{foo="bar",status_code="200",le="0.025"} 3.0
+		http_response_time_bucket{foo="bar",status_code="200",le="0.05"} 3.0
+		http_response_time_bucket{foo="bar",status_code="200",le="0.1"} 3.0
+		http_response_time_bucket{foo="bar",status_code="200",le="0.25"} 3.0
+		http_response_time_bucket{foo="bar",status_code="200",le="0.5"} 3.0
+		http_response_time_bucket{foo="bar",status_code="200",le="1.0"} 3.0
+		http_response_time_bucket{foo="bar",status_code="200",le="2.5"} 3.0
+		http_response_time_bucket{foo="bar",status_code="200",le="5.0"} 3.0
+		http_response_time_bucket{foo="bar",status_code="200",le="10.0"} 3.0
+		http_response_time_bucket{foo="bar",status_code="200",le="+Inf"} 3.0
+		http_response_time_sum{foo="bar",status_code="200"} 0.04
+		http_response_time_count{foo="bar",status_code="200"} 3.0
+		http_response_time_bucket{foo="bar",status_code="403",le="0.005"} 0.0
+		http_response_time_bucket{foo="bar",status_code="403",le="0.01"} 1.0
+		http_response_time_bucket{foo="bar",status_code="403",le="0.025"} 1.0
+		http_response_time_bucket{foo="bar",status_code="403",le="0.05"} 1.0
+		http_response_time_bucket{foo="bar",status_code="403",le="0.1"} 1.0
+		http_response_time_bucket{foo="bar",status_code="403",le="0.25"} 1.0
+		http_response_time_bucket{foo="bar",status_code="403",le="0.5"} 1.0
+		http_response_time_bucket{foo="bar",status_code="403",le="1.0"} 1.0
+		http_response_time_bucket{foo="bar",status_code="403",le="2.5"} 1.0
+		http_response_time_bucket{foo="bar",status_code="403",le="5.0"} 1.0
+		http_response_time_bucket{foo="bar",status_code="403",le="10.0"} 1.0
+		http_response_time_bucket{foo="bar",status_code="403",le="+Inf"} 1.0
+		http_response_time_sum{foo="bar",status_code="403"} 0.01
+		http_response_time_count{foo="bar",status_code="403"} 1.0
+		http_response_time_bucket{foo="bar",status_code="500",le="0.005"} 0.0
+		http_response_time_bucket{foo="bar",status_code="500",le="0.01"} 0.0
+		http_response_time_bucket{foo="bar",status_code="500",le="0.025"} 0.0
+		http_response_time_bucket{foo="bar",status_code="500",le="0.05"} 0.0
+		http_response_time_bucket{foo="bar",status_code="500",le="0.1"} 1.0
+		http_response_time_bucket{foo="bar",status_code="500",le="0.25"} 1.0
+		http_response_time_bucket{foo="bar",status_code="500",le="0.5"} 1.0
+		http_response_time_bucket{foo="bar",status_code="500",le="1.0"} 1.0
+		http_response_time_bucket{foo="bar",status_code="500",le="2.5"} 1.0
+		http_response_time_bucket{foo="bar",status_code="500",le="5.0"} 1.0
+		http_response_time_bucket{foo="bar",status_code="500",le="10.0"} 1.0
+		http_response_time_bucket{foo="bar",status_code="500",le="+Inf"} 1.0
+		http_response_time_sum{foo="bar",status_code="500"} 0.1
+		http_response_time_count{foo="bar",status_code="500"} 1.0
+	`
+
+	if err := testutil.CollectAndCompare(e.ResponseLatencyHistogramMetric(), strings.NewReader(expected)); err != nil {
 		t.Errorf("Collected metrics and / or metadata do not match expectation:\n%s", err)
 	}
 	if !e.Unregister() {

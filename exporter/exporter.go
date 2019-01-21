@@ -16,12 +16,14 @@ type DetailedStatusCount struct {
 type ExporterT interface {
 	IncrementStatusCounter(map[string]float64) error
 	IncrementDetailedStatusCounter(map[string]DetailedStatusCount) error
+	RecordLatencyObservations(map[string][]float64) error
 	CreationTime() time.Time
 }
 
 type Exporter struct {
 	statusCounter         *prometheus.CounterVec
 	detailedStatusCounter *prometheus.CounterVec
+	latencyHistogram      *prometheus.HistogramVec
 	creationTime          time.Time
 	labelValues           []string
 }
@@ -47,6 +49,16 @@ func NewExporter(labels map[string]string) *Exporter {
 	)
 
 	prometheus.MustRegister(e.statusCounter)
+
+	e.latencyHistogram = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name: "http_response_time",
+			Help: "Response time by status code",
+		},
+		baseLabelKeys,
+	)
+
+	prometheus.MustRegister(e.latencyHistogram)
 
 	detailedLabelKeys := make([]string, len(baseLabelKeys))
 	copy(detailedLabelKeys, baseLabelKeys)
@@ -107,6 +119,27 @@ func (e *Exporter) IncrementDetailedStatusCounter(counts map[string]DetailedStat
 	return nil
 }
 
+// RecordLatencyObservations updates the response latency by status code
+// histogram metric.  Single argument is a map from status (string) =>
+// observations.
+func (e *Exporter) RecordLatencyObservations(obs map[string][]float64) error {
+	labels := make([]string, len(e.labelValues)+1)
+	copy(labels, e.labelValues)
+
+	for status, l := range obs {
+		labels[len(e.labelValues)] = status
+		m, err := e.latencyHistogram.GetMetricWithLabelValues(labels...)
+		if err != nil {
+			return err
+		}
+		for _, value := range l {
+			m.Observe(value)
+		}
+	}
+
+	return nil
+}
+
 // CreationTime returns the time.Time when (or shortly before) the counter
 // metrics were created.
 func (e *Exporter) CreationTime() time.Time {
@@ -125,6 +158,10 @@ func (e *Exporter) DetailedStatusCounterMetric() *prometheus.CounterVec {
 	return e.detailedStatusCounter
 }
 
+func (e *Exporter) ResponseLatencyHistogramMetric() *prometheus.HistogramVec {
+	return e.latencyHistogram
+}
+
 // Unregister unregisters all metrics. Only used in unit tests.
 func (e *Exporter) Unregister() bool {
 	success := true
@@ -132,6 +169,9 @@ func (e *Exporter) Unregister() bool {
 		success = false
 	}
 	if !prometheus.Unregister(e.detailedStatusCounter) {
+		success = false
+	}
+	if !prometheus.Unregister(e.latencyHistogram) {
 		success = false
 	}
 	return success
