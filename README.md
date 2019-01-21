@@ -11,9 +11,12 @@ Prometheus flavored, rather than tied to the Stackdriver Monitoring API.
 
 ## Metrics
 
-Currently, only HTTP response status code counts are supported (in both summary
-and "detailed" form for whitelisted paths; see `-monitored_paths`). It should
-be pretty straightforward to add more metrics, however (e.g. request latency).
+Currently supported metrics:
+
+*   Response counts by HTTP response status code
+*   "Detailed" response counts by HTTP response code, method, and path (only
+    for whitelisted paths; see `-monitored_paths`)
+*   Response time (i.e. latency) by HTTP response code
 
 ## Requirements
 
