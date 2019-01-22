@@ -11,12 +11,13 @@ Prometheus flavored, rather than tied to the Stackdriver Monitoring API.
 
 ## Metrics
 
-Currently supported metrics:
+The following metrics are currently supported:
 
-*   Response counts by HTTP response status code
-*   "Detailed" response counts by HTTP response code, method, and path (only
-    for whitelisted paths; see `-monitored_paths`)
-*   Response time (i.e. latency) by HTTP response code
+*   Response counts, by HTTP response code
+*   "Detailed" response counts, by HTTP response code, method, and path (only
+    enabled for exact-match whitelisted paths; see `-monitored_paths`)
+*   Response time (i.e. request processing latency) distribution, by HTTP
+    response code
 
 ## Requirements
 
@@ -46,8 +47,8 @@ It is expected that nginx has been configured to write logs as json with ISO
         '"http_user_agent": "$http_user_agent" }';
     access_log /var/log/nginx/access.log json_combined;
 
-For now, only the `time`, `status`, and (optionally) `request` (for detailed
-paths) are examined.
+For now, only the `time`, `status`, `request_time`, and `request` (for detailed
+path / method metrics) are examined.
 
 **Note:** The `escape` parameter for `log_format` is only supported by nginx
 1.11.8 and later.
