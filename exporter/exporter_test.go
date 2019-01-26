@@ -174,3 +174,67 @@ func TestLatencyHistogramUpdates(t *testing.T) {
 		t.Fatalf("Failed to unregister one or more exported metrics.")
 	}
 }
+
+func TestBytesSentHistogramUpdates(t *testing.T) {
+	e := exporter.NewExporter(map[string]string{
+		"foo": "bar",
+	})
+
+	e.RecordBytesSentObservations(map[string][]float64{
+		"200": {100, 200},
+		"403": {100},
+	})
+
+	e.RecordBytesSentObservations(map[string][]float64{
+		"200": {100},
+		"500": {10},
+	})
+
+	const expected = `
+		# HELP http_response_bytes_sent Response size (bytes) by status code
+		# TYPE http_response_bytes_sent histogram
+		http_response_bytes_sent_bucket{foo="bar",status_code="200",le="8.0"} 0.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="200",le="16.0"} 0.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="200",le="64.0"} 0.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="200",le="128.0"} 2.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="200",le="256.0"} 3.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="200",le="512.0"} 3.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="200",le="1024.0"} 3.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="200",le="2048.0"} 3.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="200",le="4096.0"} 3.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="200",le="+Inf"} 3.0
+		http_response_bytes_sent_sum{foo="bar",status_code="200"} 400.0
+		http_response_bytes_sent_count{foo="bar",status_code="200"} 3.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="403",le="8.0"} 0.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="403",le="16.0"} 0.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="403",le="64.0"} 0.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="403",le="128.0"} 1.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="403",le="256.0"} 1.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="403",le="512.0"} 1.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="403",le="1024.0"} 1.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="403",le="2048.0"} 1.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="403",le="4096.0"} 1.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="403",le="+Inf"} 1.0
+		http_response_bytes_sent_sum{foo="bar",status_code="403"} 100.0
+		http_response_bytes_sent_count{foo="bar",status_code="403"} 1.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="500",le="8.0"} 0.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="500",le="16.0"} 1.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="500",le="64.0"} 1.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="500",le="128.0"} 1.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="500",le="256.0"} 1.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="500",le="512.0"} 1.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="500",le="1024.0"} 1.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="500",le="2048.0"} 1.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="500",le="4096.0"} 1.0
+		http_response_bytes_sent_bucket{foo="bar",status_code="500",le="+Inf"} 1.0
+		http_response_bytes_sent_sum{foo="bar",status_code="500"} 10.0
+		http_response_bytes_sent_count{foo="bar",status_code="500"} 1.0
+	`
+
+	if err := testutil.CollectAndCompare(e.BytesSentHistogramMetric(), strings.NewReader(expected)); err != nil {
+		t.Errorf("Collected metrics and / or metadata do not match expectation:\n%s", err)
+	}
+	if !e.Unregister() {
+		t.Fatalf("Failed to unregister one or more exported metrics.")
+	}
+}

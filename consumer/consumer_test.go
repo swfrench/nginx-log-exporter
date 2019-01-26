@@ -18,7 +18,7 @@ var (
 
 const (
 	floatEqualityAbsoluteTol = 1e-9
-	logTemplateFormat        = "{\"time\": \"{{.Time}}\", \"status\": \"{{.Status}}\", \"request_time\": {{.RequestTime}}, \"request\": \"{{.Method}} {{.Path}} HTTP/1.1\"}\n"
+	logTemplateFormat        = "{\"time\": \"{{.Time}}\", \"status\": \"{{.Status}}\", \"request_time\": {{.RequestTime}}, \"request\": \"{{.Method}} {{.Path}} HTTP/1.1\", \"bytes_sent\": {{.BytesSent}}}\n"
 )
 
 func init() {
@@ -28,13 +28,15 @@ func init() {
 // Mocks:
 
 type MockExporter struct {
-	callCount            int
-	detailedCallCount    int
-	latencyCallCount     int
-	statusCounts         map[string]float64
-	detailedStatusCounts map[string]exporter.DetailedStatusCount
-	latencyObservations  map[string][]float64
-	creationTime         time.Time
+	callCount             int
+	detailedCallCount     int
+	latencyCallCount      int
+	bytesSentCallCount    int
+	statusCounts          map[string]float64
+	detailedStatusCounts  map[string]exporter.DetailedStatusCount
+	latencyObservations   map[string][]float64
+	bytesSentObservations map[string][]float64
+	creationTime          time.Time
 }
 
 func (e *MockExporter) CreationTime() time.Time {
@@ -68,6 +70,15 @@ func (e *MockExporter) RecordLatencyObservations(obs map[string][]float64) error
 	return nil
 }
 
+func (e *MockExporter) RecordBytesSentObservations(obs map[string][]float64) error {
+	e.bytesSentCallCount += 1
+	e.bytesSentObservations = make(map[string][]float64)
+	for code := range obs {
+		e.bytesSentObservations[code] = append(e.bytesSentObservations[code], obs[code]...)
+	}
+	return nil
+}
+
 type MockTailer struct {
 	callCount int
 	content   []byte
@@ -84,6 +95,7 @@ type logLine struct {
 	Time        string
 	Status      string
 	RequestTime string
+	BytesSent   string
 	Method      string
 	Path        string
 }
@@ -180,6 +192,7 @@ func TestBasicStats(t *testing.T) {
 			Time:        timeEarly,
 			Status:      "200",
 			RequestTime: "0.010",
+			BytesSent:   "10",
 			Method:      "GET",
 			Path:        "/",
 		},
@@ -187,6 +200,7 @@ func TestBasicStats(t *testing.T) {
 			Time:        timeLate,
 			Status:      "200",
 			RequestTime: "0.020",
+			BytesSent:   "20",
 			Method:      "GET",
 			Path:        "/foo",
 		},
@@ -194,6 +208,7 @@ func TestBasicStats(t *testing.T) {
 			Time:        timeLate,
 			Status:      "200",
 			RequestTime: "0.030",
+			BytesSent:   "30",
 			Method:      "POST",
 			Path:        "/foo",
 		},
@@ -201,6 +216,7 @@ func TestBasicStats(t *testing.T) {
 			Time:        timeLate,
 			Status:      "500",
 			RequestTime: "0.040",
+			BytesSent:   "40",
 			Method:      "GET",
 			Path:        "/foo?bar=1",
 		},
@@ -225,16 +241,18 @@ func TestBasicStats(t *testing.T) {
 	if e.latencyCallCount == 0 {
 		t.Fatalf("Consumer did not call MockExporter.RecordLatencyObservations()")
 	}
+	if e.bytesSentCallCount == 0 {
+		t.Fatalf("Consumer did not call MockExporter.RecordBytesSentObservations()")
+	}
 
 	// And content.
-	if got, want := e.statusCounts["200"], float64(2); got != want {
-		t.Fatalf("Exporter returned %v for 200 status count, wanted %v", got, want)
-	}
-	if got, want := e.statusCounts["500"], float64(1); got != want {
-		t.Fatalf("Exporter returned %v for 500 status count, wanted %v", got, want)
-	}
-	if got, want := len(e.detailedStatusCounts), 0; got != want {
-		t.Fatalf("Exporter was provided with detailed status counts, even though no paths were configured; got: %v", e.detailedStatusCounts)
+	for code, count := range map[string]float64{
+		"200": 2,
+		"500": 1,
+	} {
+		if got, want := e.statusCounts[code], count; !floatEq(got, want) {
+			t.Fatalf("Exporter returned %v for %s status count, wanted %v", got, code, want)
+		}
 	}
 	for code, obs := range map[string][]float64{
 		"200": {0.02, 0.03},
@@ -243,6 +261,17 @@ func TestBasicStats(t *testing.T) {
 		if got, want := e.latencyObservations[code], obs; !unorderedFloatElementsEq(got, want) {
 			t.Fatalf("Exporter was provided with a set of latency observations that did not match for status %s: got %v, want %v", code, got, want)
 		}
+	}
+	for code, obs := range map[string][]float64{
+		"200": {20, 30},
+		"500": {40},
+	} {
+		if got, want := e.bytesSentObservations[code], obs; !unorderedFloatElementsEq(got, want) {
+			t.Fatalf("Exporter was provided with a set of bytes-sent observations that did not match for status %s: got %v, want %v", code, got, want)
+		}
+	}
+	if got, want := len(e.detailedStatusCounts), 0; got != want {
+		t.Fatalf("Exporter was provided with detailed status counts, even though no paths were configured; got: %v", e.detailedStatusCounts)
 	}
 }
 
@@ -266,6 +295,7 @@ func TestDetailedStats(t *testing.T) {
 			Time:        timeEarly,
 			Status:      "200",
 			RequestTime: "0.010",
+			BytesSent:   "10",
 			Method:      "GET",
 			Path:        "/",
 		},
@@ -273,6 +303,7 @@ func TestDetailedStats(t *testing.T) {
 			Time:        timeEarly,
 			Status:      "200",
 			RequestTime: "0.010",
+			BytesSent:   "10",
 			Method:      "GET",
 			Path:        "/foo",
 		},
@@ -280,6 +311,7 @@ func TestDetailedStats(t *testing.T) {
 			Time:        timeLate,
 			Status:      "200",
 			RequestTime: "0.020",
+			BytesSent:   "20",
 			Method:      "GET",
 			Path:        "/",
 		},
@@ -287,6 +319,7 @@ func TestDetailedStats(t *testing.T) {
 			Time:        timeLate,
 			Status:      "200",
 			RequestTime: "0.030",
+			BytesSent:   "30",
 			Method:      "GET",
 			Path:        "/foo",
 		},
@@ -294,6 +327,7 @@ func TestDetailedStats(t *testing.T) {
 			Time:        timeLate,
 			Status:      "500",
 			RequestTime: "0.040",
+			BytesSent:   "40",
 			Method:      "GET",
 			Path:        "/foo",
 		},
@@ -301,6 +335,7 @@ func TestDetailedStats(t *testing.T) {
 			Time:        timeLate,
 			Status:      "200",
 			RequestTime: "0.050",
+			BytesSent:   "50",
 			Method:      "POST",
 			Path:        "/foo",
 		},
@@ -308,6 +343,7 @@ func TestDetailedStats(t *testing.T) {
 			Time:        timeLate,
 			Status:      "500",
 			RequestTime: "0.060",
+			BytesSent:   "60",
 			Method:      "GET",
 			Path:        "/foo?bar=1",
 		},
@@ -332,13 +368,18 @@ func TestDetailedStats(t *testing.T) {
 	if e.latencyCallCount == 0 {
 		t.Fatalf("Consumer did not call MockExporter.RecordLatencyObservations()")
 	}
+	if e.bytesSentCallCount == 0 {
+		t.Fatalf("Consumer did not call MockExporter.RecordBytesSentObservations()")
+	}
 
 	// And content.
-	if got, want := e.statusCounts["200"], float64(3); got != want {
-		t.Fatalf("Exporter returned %v for 200 status count, wanted %v", got, want)
-	}
-	if got, want := e.statusCounts["500"], float64(2); got != want {
-		t.Fatalf("Exporter returned %v for 500 status count, wanted %v", got, want)
+	for code, count := range map[string]float64{
+		"200": 3,
+		"500": 2,
+	} {
+		if got, want := e.statusCounts[code], count; !floatEq(got, want) {
+			t.Fatalf("Exporter returned %v for %s status count, wanted %v", got, code, want)
+		}
 	}
 	for code, obs := range map[string][]float64{
 		"200": {0.02, 0.03, 0.05},
@@ -346,6 +387,14 @@ func TestDetailedStats(t *testing.T) {
 	} {
 		if got, want := e.latencyObservations[code], obs; !unorderedFloatElementsEq(got, want) {
 			t.Fatalf("Exporter was provided with a set of latency observations that did not match for status %s: got %v, want %v", code, got, want)
+		}
+	}
+	for code, obs := range map[string][]float64{
+		"200": {20, 30, 50},
+		"500": {40, 60},
+	} {
+		if got, want := e.bytesSentObservations[code], obs; !unorderedFloatElementsEq(got, want) {
+			t.Fatalf("Exporter was provided with a set of bytes-sent observations that did not match for status %s: got %v, want %v", code, got, want)
 		}
 	}
 	for _, expected := range []exporter.DetailedStatusCount{

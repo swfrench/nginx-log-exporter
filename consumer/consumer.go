@@ -24,12 +24,46 @@ type logLine struct {
 	Request     string  `json:"request"`
 	Status      string  `json:"status"`
 	RequestTime float64 `json:"request_time"`
+	BytesSent   float64 `json:"bytes_sent"`
+}
+
+type keyedCounter struct {
+	counts map[string]float64
+}
+
+func newKeyedCounter() *keyedCounter {
+	return &keyedCounter{
+		counts: make(map[string]float64),
+	}
+}
+
+func (c *keyedCounter) Inc(key string) {
+	if tot, ok := c.counts[key]; ok {
+		c.counts[key] = 1 + tot
+	} else {
+		c.counts[key] = 1
+	}
+}
+
+type keyedAccumulator struct {
+	observations map[string][]float64
+}
+
+func newKeyedAccumulator() *keyedAccumulator {
+	return &keyedAccumulator{
+		observations: make(map[string][]float64),
+	}
+}
+
+func (a *keyedAccumulator) Record(key string, value float64) {
+	a.observations[key] = append(a.observations[key], value)
 }
 
 type logStats struct {
-	statusCounts         map[string]float64
-	latencyObservations  map[string][]float64
-	detailedStatusCounts map[string]exporter.DetailedStatusCount
+	statusCounts          *keyedCounter
+	latencyObservations   *keyedAccumulator
+	bytesSentObservations *keyedAccumulator
+	detailedStatusCounts  map[string]exporter.DetailedStatusCount
 }
 
 // Consumer implements periodic polling of the supplied nginx access log
@@ -60,14 +94,14 @@ func NewConsumer(period time.Duration, tailer tailer.TailerT, exporter exporter.
 }
 
 func (c *Consumer) consumeLine(line *logLine, stats *logStats) {
-	if tot, ok := stats.statusCounts[line.Status]; ok {
-		stats.statusCounts[line.Status] = 1 + tot
-	} else {
-		stats.statusCounts[line.Status] = 1
-	}
+	stats.statusCounts.Inc(line.Status)
 
 	if line.RequestTime >= 0 {
-		stats.latencyObservations[line.Status] = append(stats.latencyObservations[line.Status], line.RequestTime)
+		stats.latencyObservations.Record(line.Status, line.RequestTime)
+	}
+
+	if line.BytesSent >= 0 {
+		stats.bytesSentObservations.Record(line.Status, line.BytesSent)
 	}
 
 	if requestFields := strings.Fields(line.Request); len(requestFields) != 3 {
@@ -92,9 +126,10 @@ func (c *Consumer) consumeLine(line *logLine, stats *logStats) {
 
 func (c *Consumer) consumeBytes(b []byte) error {
 	stats := &logStats{
-		statusCounts:         make(map[string]float64),
-		latencyObservations:  make(map[string][]float64),
-		detailedStatusCounts: make(map[string]exporter.DetailedStatusCount),
+		statusCounts:          newKeyedCounter(),
+		latencyObservations:   newKeyedAccumulator(),
+		bytesSentObservations: newKeyedAccumulator(),
+		detailedStatusCounts:  make(map[string]exporter.DetailedStatusCount),
 	}
 
 	scanner := bufio.NewScanner(bytes.NewReader(b))
@@ -102,8 +137,9 @@ func (c *Consumer) consumeBytes(b []byte) error {
 		lineBytes := scanner.Bytes()
 
 		line := &logLine{
-			// Sentinal value in case request time was not present.
+			// Sentinal values for numeric fields that might not be present.
 			RequestTime: -1,
+			BytesSent:   -1,
 		}
 
 		err := json.Unmarshal(lineBytes, line)
@@ -123,14 +159,17 @@ func (c *Consumer) consumeBytes(b []byte) error {
 		}
 	}
 
-	if err := c.exporter.IncrementStatusCounter(stats.statusCounts); err != nil {
+	if err := c.exporter.IncrementStatusCounter(stats.statusCounts.counts); err != nil {
 		return fmt.Errorf("Call to IncrementStatusCounter failed: %v", err)
 	}
 	if err := c.exporter.IncrementDetailedStatusCounter(stats.detailedStatusCounts); err != nil {
 		return fmt.Errorf("Call to IncrementDetailedStatusCounter failed: %v", err)
 	}
-	if err := c.exporter.RecordLatencyObservations(stats.latencyObservations); err != nil {
+	if err := c.exporter.RecordLatencyObservations(stats.latencyObservations.observations); err != nil {
 		return fmt.Errorf("Call to RecordLatencyObservations failed: %v", err)
+	}
+	if err := c.exporter.RecordBytesSentObservations(stats.bytesSentObservations.observations); err != nil {
+		return fmt.Errorf("Call to RecordBytesSentObservations failed: %v", err)
 	}
 	return nil
 }

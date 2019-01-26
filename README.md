@@ -34,21 +34,19 @@ client).
 ### Log format
 
 It is expected that nginx has been configured to write logs as json with ISO
-8601 timestamps. For example:
+8601 timestamps. A minimal example (you'll probably want more fields):
 
-    log_format json_combined escape=json '{ "time": "$time_iso8601", '
-        '"remote_addr": "$remote_addr", '
-        '"remote_user": "$remote_user", '
+    log_format json_combined escape=json '{ '
+        '"time": "$time_iso8601", '
         '"request": "$request", '
         '"status": "$status", '
-        '"body_bytes_sent": "$body_bytes_sent", '
-        '"request_time": $request_time, '
-        '"http_referrer": "$http_referer", '
-        '"http_user_agent": "$http_user_agent" }';
+        '"bytes_sent": $bytes_sent, '
+        '"request_time": $request_time }';
     access_log /var/log/nginx/access.log json_combined;
 
-For now, only the `time`, `status`, `request_time`, and `request` (for detailed
-path / method metrics) are examined.
+For now, only the `time`, `status`, `request_time`, `bytes_sent`, and `request`
+(for detailed path / method metrics) fields are examined (any others will be
+ignored).
 
 **Note:** The `escape` parameter for `log_format` is only supported by nginx
 1.11.8 and later.

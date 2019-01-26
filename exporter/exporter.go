@@ -6,6 +6,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+var (
+	bytesSentBuckets = []float64{8, 16, 64, 128, 256, 512, 1024, 2048, 4096}
+)
+
 type DetailedStatusCount struct {
 	Count  float64
 	Method string
@@ -17,6 +21,7 @@ type ExporterT interface {
 	IncrementStatusCounter(map[string]float64) error
 	IncrementDetailedStatusCounter(map[string]DetailedStatusCount) error
 	RecordLatencyObservations(map[string][]float64) error
+	RecordBytesSentObservations(map[string][]float64) error
 	CreationTime() time.Time
 }
 
@@ -24,6 +29,7 @@ type Exporter struct {
 	statusCounter         *prometheus.CounterVec
 	detailedStatusCounter *prometheus.CounterVec
 	latencyHistogram      *prometheus.HistogramVec
+	bytesSentHistogram    *prometheus.HistogramVec
 	creationTime          time.Time
 	labelValues           []string
 }
@@ -59,6 +65,17 @@ func NewExporter(labels map[string]string) *Exporter {
 	)
 
 	prometheus.MustRegister(e.latencyHistogram)
+
+	e.bytesSentHistogram = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "http_response_bytes_sent",
+			Help:    "Response size (bytes) by status code",
+			Buckets: bytesSentBuckets,
+		},
+		baseLabelKeys,
+	)
+
+	prometheus.MustRegister(e.bytesSentHistogram)
 
 	detailedLabelKeys := make([]string, len(baseLabelKeys))
 	copy(detailedLabelKeys, baseLabelKeys)
@@ -140,6 +157,27 @@ func (e *Exporter) RecordLatencyObservations(obs map[string][]float64) error {
 	return nil
 }
 
+// RecordBytesSentObservations updates the response bytes sent by status code
+// histogram metric.  Single argument is a map from status (string) => bytes
+// sent observations.
+func (e *Exporter) RecordBytesSentObservations(obs map[string][]float64) error {
+	labels := make([]string, len(e.labelValues)+1)
+	copy(labels, e.labelValues)
+
+	for status, l := range obs {
+		labels[len(e.labelValues)] = status
+		m, err := e.bytesSentHistogram.GetMetricWithLabelValues(labels...)
+		if err != nil {
+			return err
+		}
+		for _, value := range l {
+			m.Observe(value)
+		}
+	}
+
+	return nil
+}
+
 // CreationTime returns the time.Time when (or shortly before) the counter
 // metrics were created.
 func (e *Exporter) CreationTime() time.Time {
@@ -158,8 +196,16 @@ func (e *Exporter) DetailedStatusCounterMetric() *prometheus.CounterVec {
 	return e.detailedStatusCounter
 }
 
+// ResponseLatencyHistogramMetric returns the underlying HistogramVec used to
+// track response time. Only used in unit tests.
 func (e *Exporter) ResponseLatencyHistogramMetric() *prometheus.HistogramVec {
 	return e.latencyHistogram
+}
+
+// BytesSentHistogramMetric returns the underlying HistogramVec used to track
+// response size. Only used in unit tests.
+func (e *Exporter) BytesSentHistogramMetric() *prometheus.HistogramVec {
+	return e.bytesSentHistogram
 }
 
 // Unregister unregisters all metrics. Only used in unit tests.
@@ -172,6 +218,9 @@ func (e *Exporter) Unregister() bool {
 		success = false
 	}
 	if !prometheus.Unregister(e.latencyHistogram) {
+		success = false
+	}
+	if !prometheus.Unregister(e.bytesSentHistogram) {
 		success = false
 	}
 	return success
