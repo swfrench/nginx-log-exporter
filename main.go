@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/swfrench/nginx-log-exporter/consumer"
-	"github.com/swfrench/nginx-log-exporter/exporter"
+	"github.com/swfrench/nginx-log-exporter/metrics"
 	"github.com/swfrench/nginx-log-exporter/tailer"
 
 	"cloud.google.com/go/compute/metadata"
@@ -125,9 +125,9 @@ func main() {
 		log.Fatalf("Could not parse monitored paths: %v", err)
 	}
 
-	log.Printf("Creating exporter for resource: %v", labels)
+	log.Printf("Creating metrics manager for with base labels: %v", labels)
 
-	e := exporter.NewExporter(labels)
+	m := metrics.NewMetricsManager(labels)
 
 	log.Printf("Starting prometheus exporter at %s", *exportAddress)
 
@@ -136,7 +136,10 @@ func main() {
 		log.Fatal(http.ListenAndServe(*exportAddress, nil))
 	}()
 
-	c := consumer.NewConsumer(*logPollingPeriod, t, e, paths)
+	c, err := consumer.NewConsumer(*logPollingPeriod, t, m, paths)
+	if err != nil {
+		log.Fatalf("Could not create consumer: %v", err)
+	}
 
 	log.Printf("Starting consumer for %s", *accessLogPath)
 

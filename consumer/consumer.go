@@ -10,13 +10,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swfrench/nginx-log-exporter/exporter"
+	"github.com/swfrench/nginx-log-exporter/metrics"
 	"github.com/swfrench/nginx-log-exporter/tailer"
 )
 
 const (
 	// ISO8601 contains a time.Parse reference timestamp for ISO 8601.
 	ISO8601 = "2006-01-02T15:04:05-07:00"
+)
+
+var (
+	// Buckets used with the http_response_bytes_sent metric.
+	bytesSentBuckets = []float64{8, 16, 64, 128, 256, 512, 1024, 2048, 4096}
 )
 
 type logLine struct {
@@ -27,81 +32,172 @@ type logLine struct {
 	BytesSent   float64 `json:"bytes_sent"`
 }
 
+type annotatedCount struct {
+	total       float64
+	annotations map[string]string
+}
+
 type keyedCounter struct {
-	counts map[string]float64
+	counts map[string]*annotatedCount
 }
 
 func newKeyedCounter() *keyedCounter {
 	return &keyedCounter{
-		counts: make(map[string]float64),
+		counts: make(map[string]*annotatedCount),
 	}
 }
 
-func (c *keyedCounter) Inc(key string) {
-	if tot, ok := c.counts[key]; ok {
-		c.counts[key] = 1 + tot
-	} else {
-		c.counts[key] = 1
+func (c *keyedCounter) inc(key string, annotations map[string]string) {
+	if _, ok := c.counts[key]; ok {
+		c.counts[key].total += 1
+		return
 	}
+
+	a := &annotatedCount{
+		total:       1,
+		annotations: nil,
+	}
+	if annotations != nil {
+		a.annotations = make(map[string]string)
+		for k, v := range annotations {
+			a.annotations[k] = v
+		}
+	}
+	c.counts[key] = a
+}
+
+type annotatedObservations struct {
+	seen        []float64
+	annotations map[string]string
 }
 
 type keyedAccumulator struct {
-	observations map[string][]float64
+	observations map[string]*annotatedObservations
 }
 
 func newKeyedAccumulator() *keyedAccumulator {
 	return &keyedAccumulator{
-		observations: make(map[string][]float64),
+		observations: make(map[string]*annotatedObservations),
 	}
 }
 
-func (a *keyedAccumulator) Record(key string, value float64) {
-	a.observations[key] = append(a.observations[key], value)
+func (a *keyedAccumulator) record(key string, value float64, annotations map[string]string) {
+	if _, ok := a.observations[key]; ok {
+		a.observations[key].seen = append(a.observations[key].seen, value)
+		return
+	}
+
+	o := &annotatedObservations{
+		annotations: nil,
+	}
+	o.seen = append(o.seen, value)
+	if annotations != nil {
+		o.annotations = make(map[string]string)
+		for k, v := range annotations {
+			o.annotations[k] = v
+		}
+	}
+	a.observations[key] = o
 }
 
 type logStats struct {
 	statusCounts          *keyedCounter
+	detailedStatusCounts  *keyedCounter
 	latencyObservations   *keyedAccumulator
 	bytesSentObservations *keyedAccumulator
-	detailedStatusCounts  map[string]exporter.DetailedStatusCount
 }
 
 // Consumer implements periodic polling of the supplied nginx access log
-// tailer, aggregation of response counts from the returned log lines, and
-// reporting of the latter via the supplied exporter (e.g. to Stackdriver).
+// tailer, aggregation of response counts from the returned log lines.
 type Consumer struct {
-	Period   time.Duration
-	tailer   tailer.TailerT
-	exporter exporter.ExporterT
-	paths    map[string]bool
-	stop     chan bool
+	Period                     time.Duration
+	tailer                     tailer.TailerT
+	manager                    metrics.MetricsManagerT
+	paths                      map[string]bool
+	stop                       chan bool
+	initFinshed                time.Time
+	httpResposeCounter         metrics.CounterT
+	detailedHttpResposeCounter metrics.CounterT
+	httpResposeTimeHist        metrics.HistogramT
+	httpResposeByteSentHist    metrics.HistogramT
 }
 
-// NewConsumer returns a Consumer polling the supplied tailer and reporting to
-// the supplied exporter with the specified period.
-func NewConsumer(period time.Duration, tailer tailer.TailerT, exporter exporter.ExporterT, paths []string) *Consumer {
+// NewConsumer returns a Consumer polling the supplied tailer for new access
+// log lines and exporting counts / stats to the supplied manager at the
+// specified period. The specific metrics exported by the Consumer will be
+// created during init in NewConsumer.
+func NewConsumer(period time.Duration, tailer tailer.TailerT, manager metrics.MetricsManagerT, paths []string) (*Consumer, error) {
 	c := &Consumer{
-		Period:   period,
-		tailer:   tailer,
-		exporter: exporter,
-		paths:    make(map[string]bool),
-		stop:     make(chan bool, 1),
+		Period:  period,
+		tailer:  tailer,
+		manager: manager,
+		paths:   make(map[string]bool),
+		stop:    make(chan bool, 1),
 	}
 	for _, path := range paths {
 		c.paths[path] = true
 	}
-	return c
+
+	if err := manager.AddCounter("http_response_count", "Counts of responses by status code", []string{
+		"status_code",
+	}); err != nil {
+		return nil, err
+	}
+	if counter, err := manager.GetCounter("http_response_count"); err != nil {
+		return nil, err
+	} else {
+		c.httpResposeCounter = counter
+	}
+
+	if err := manager.AddCounter("detailed_http_response_count", "Counts of responses by status code, path, and method", []string{
+		"status_code",
+		"path",
+		"method",
+	}); err != nil {
+		return nil, err
+	}
+	if counter, err := manager.GetCounter("detailed_http_response_count"); err != nil {
+		return nil, err
+	} else {
+		c.detailedHttpResposeCounter = counter
+	}
+
+	if err := manager.AddHistogram("http_response_time", "Response time (seconds) by status code", []string{
+		"status_code",
+	}, nil); err != nil {
+		return nil, err
+	}
+	if hist, err := manager.GetHistogram("http_response_time"); err != nil {
+		return nil, err
+	} else {
+		c.httpResposeTimeHist = hist
+	}
+
+	if err := manager.AddHistogram("http_response_bytes_sent", "Response size (bytes) by status code", []string{
+		"status_code",
+	}, bytesSentBuckets); err != nil {
+		return nil, err
+	}
+	if hist, err := manager.GetHistogram("http_response_bytes_sent"); err != nil {
+		return nil, err
+	} else {
+		c.httpResposeByteSentHist = hist
+	}
+
+	c.initFinshed = time.Now()
+
+	return c, nil
 }
 
 func (c *Consumer) consumeLine(line *logLine, stats *logStats) {
-	stats.statusCounts.Inc(line.Status)
+	stats.statusCounts.inc(line.Status, nil)
 
 	if line.RequestTime >= 0 {
-		stats.latencyObservations.Record(line.Status, line.RequestTime)
+		stats.latencyObservations.record(line.Status, line.RequestTime, nil)
 	}
 
 	if line.BytesSent >= 0 {
-		stats.bytesSentObservations.Record(line.Status, line.BytesSent)
+		stats.bytesSentObservations.record(line.Status, line.BytesSent, nil)
 	}
 
 	if requestFields := strings.Fields(line.Request); len(requestFields) != 3 {
@@ -110,26 +206,20 @@ func (c *Consumer) consumeLine(line *logLine, stats *logStats) {
 		log.Printf("Skipping malformed request path: %v", requestFields[1])
 	} else if _, ok := c.paths[u.Path]; ok {
 		key := strings.Join([]string{line.Status, requestFields[0], u.Path}, ":")
-		if tot, ok := stats.detailedStatusCounts[key]; ok {
-			tot.Count += 1
-			stats.detailedStatusCounts[key] = tot
-		} else {
-			stats.detailedStatusCounts[key] = exporter.DetailedStatusCount{
-				Count:  1,
-				Status: line.Status,
-				Path:   u.Path,
-				Method: requestFields[0],
-			}
-		}
+		stats.detailedStatusCounts.inc(key, map[string]string{
+			"status_code": line.Status,
+			"path":        u.Path,
+			"method":      requestFields[0],
+		})
 	}
 }
 
 func (c *Consumer) consumeBytes(b []byte) error {
 	stats := &logStats{
 		statusCounts:          newKeyedCounter(),
+		detailedStatusCounts:  newKeyedCounter(),
 		latencyObservations:   newKeyedAccumulator(),
 		bytesSentObservations: newKeyedAccumulator(),
-		detailedStatusCounts:  make(map[string]exporter.DetailedStatusCount),
 	}
 
 	scanner := bufio.NewScanner(bytes.NewReader(b))
@@ -154,22 +244,44 @@ func (c *Consumer) consumeBytes(b []byte) error {
 			continue
 		}
 
-		if t.After(c.exporter.CreationTime()) {
+		if t.After(c.initFinshed) {
 			c.consumeLine(line, stats)
 		}
 	}
 
-	if err := c.exporter.IncrementStatusCounter(stats.statusCounts.counts); err != nil {
-		return fmt.Errorf("Call to IncrementStatusCounter failed: %v", err)
+	for code, count := range stats.statusCounts.counts {
+		if err := c.httpResposeCounter.Add(map[string]string{
+			"status_code": code,
+		}, count.total); err != nil {
+			return err
+		}
 	}
-	if err := c.exporter.IncrementDetailedStatusCounter(stats.detailedStatusCounts); err != nil {
-		return fmt.Errorf("Call to IncrementDetailedStatusCounter failed: %v", err)
+	for code, count := range stats.detailedStatusCounts.counts {
+		labels := map[string]string{
+			"status_code": code,
+		}
+		if count.annotations != nil {
+			for k, v := range count.annotations {
+				labels[k] = v
+			}
+		}
+		if err := c.detailedHttpResposeCounter.Add(labels, count.total); err != nil {
+			return err
+		}
 	}
-	if err := c.exporter.RecordLatencyObservations(stats.latencyObservations.observations); err != nil {
-		return fmt.Errorf("Call to RecordLatencyObservations failed: %v", err)
+	for code, observations := range stats.latencyObservations.observations {
+		if err := c.httpResposeTimeHist.Observe(map[string]string{
+			"status_code": code,
+		}, observations.seen); err != nil {
+			return err
+		}
 	}
-	if err := c.exporter.RecordBytesSentObservations(stats.bytesSentObservations.observations); err != nil {
-		return fmt.Errorf("Call to RecordBytesSentObservations failed: %v", err)
+	for code, observations := range stats.bytesSentObservations.observations {
+		if err := c.httpResposeByteSentHist.Observe(map[string]string{
+			"status_code": code,
+		}, observations.seen); err != nil {
+			return err
+		}
 	}
 	return nil
 }

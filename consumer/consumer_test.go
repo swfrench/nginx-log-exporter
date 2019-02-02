@@ -2,14 +2,17 @@ package consumer_test
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"sort"
 	"testing"
 	"text/template"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/swfrench/nginx-log-exporter/consumer"
-	"github.com/swfrench/nginx-log-exporter/exporter"
+	"github.com/swfrench/nginx-log-exporter/metrics/mock_metrics"
+	"github.com/swfrench/nginx-log-exporter/tailer/mock_tailer"
 )
 
 var (
@@ -25,71 +28,98 @@ func init() {
 	logTemplate = template.Must(template.New("logLine").Parse(logTemplateFormat))
 }
 
-// Mocks:
+// Custom Matchers
 
-type MockExporter struct {
-	callCount             int
-	detailedCallCount     int
-	latencyCallCount      int
-	bytesSentCallCount    int
-	statusCounts          map[string]float64
-	detailedStatusCounts  map[string]exporter.DetailedStatusCount
-	latencyObservations   map[string][]float64
-	bytesSentObservations map[string][]float64
-	creationTime          time.Time
+func floatEq(a, b float64) bool {
+	// TODO(swfrench): Maybe relative equality.
+	return math.Abs(a-b) <= floatEqualityAbsoluteTol
 }
 
-func (e *MockExporter) CreationTime() time.Time {
-	return e.creationTime
+type FloatMatcher struct {
+	want float64
 }
 
-func (e *MockExporter) IncrementStatusCounter(counts map[string]float64) error {
-	e.callCount += 1
-	e.statusCounts = make(map[string]float64)
-	for code := range counts {
-		e.statusCounts[code] = counts[code]
+func (f FloatMatcher) Matches(got interface{}) bool {
+	gotFloat, ok := got.(float64)
+	if !ok {
+		return false
 	}
-	return nil
+	return floatEq(f.want, gotFloat)
 }
 
-func (e *MockExporter) IncrementDetailedStatusCounter(counts map[string]exporter.DetailedStatusCount) error {
-	e.detailedCallCount += 1
-	e.detailedStatusCounts = make(map[string]exporter.DetailedStatusCount)
-	for code := range counts {
-		e.detailedStatusCounts[code] = counts[code]
+func (f FloatMatcher) String() string {
+	return fmt.Sprintf("is a float64 value approximately equal to %v", f.want)
+}
+
+func FloatEq(want float64) FloatMatcher {
+	return FloatMatcher{want: want}
+}
+
+func floatElementsEq(a, b []float64, ordered bool) bool {
+	if len(a) != len(b) {
+		return false
 	}
-	return nil
-}
-
-func (e *MockExporter) RecordLatencyObservations(obs map[string][]float64) error {
-	e.latencyCallCount += 1
-	e.latencyObservations = make(map[string][]float64)
-	for code := range obs {
-		e.latencyObservations[code] = append(e.latencyObservations[code], obs[code]...)
+	if len(a) == 0 && len(b) == 0 {
+		return true
 	}
-	return nil
-}
-
-func (e *MockExporter) RecordBytesSentObservations(obs map[string][]float64) error {
-	e.bytesSentCallCount += 1
-	e.bytesSentObservations = make(map[string][]float64)
-	for code := range obs {
-		e.bytesSentObservations[code] = append(e.bytesSentObservations[code], obs[code]...)
+	if ordered {
+		for i := range a {
+			if !floatEq(a[i], b[i]) {
+				return false
+			}
+		}
+	} else {
+		as := make(sort.Float64Slice, len(a))
+		bs := make(sort.Float64Slice, len(b))
+		copy(as, a)
+		copy(bs, b)
+		// NOTE(swfrench): Assumption: comparison under Sort operates within floatEq tolerance.
+		sort.Sort(as)
+		sort.Sort(bs)
+		for i := range as {
+			if !floatEq(as[i], bs[i]) {
+				return false
+			}
+		}
 	}
-	return nil
+	return true
 }
 
-type MockTailer struct {
-	callCount int
-	content   []byte
+type FloatElementsMatcher struct {
+	want    []float64
+	ordered bool
 }
 
-func (t *MockTailer) Next() ([]byte, error) {
-	t.callCount += 1
-	return t.content, nil
+func (m FloatElementsMatcher) Matches(got interface{}) bool {
+	gotSlice, ok := got.([]float64)
+	if !ok {
+		return false
+	}
+	return floatElementsEq(m.want, gotSlice, m.ordered)
 }
 
-// Helpers:
+func (m FloatElementsMatcher) String() string {
+	var order string
+	if m.ordered {
+		order = "same order"
+	} else {
+		order = "any order"
+	}
+	return fmt.Sprintf("is a []float64 containing elements approximately equal to %v (%s)", m.want, order)
+}
+
+func (m FloatElementsMatcher) AnyOrder() FloatElementsMatcher {
+	m.ordered = false
+	return m
+}
+
+func FloatElementsEq(want []float64) FloatElementsMatcher {
+	m := FloatElementsMatcher{ordered: true}
+	m.want = append(m.want, want...)
+	return m
+}
+
+// Helpers
 
 type logLine struct {
 	Time        string
@@ -102,30 +132,6 @@ type logLine struct {
 
 func buildLogLine(line logLine, buffer *bytes.Buffer) error {
 	return logTemplate.Execute(buffer, line)
-}
-
-func floatEq(a, b float64) bool {
-	// TODO(swfrench): Maybe relative equality.
-	return math.Abs(a-b) <= floatEqualityAbsoluteTol
-}
-
-func unorderedFloatElementsEq(a, b []float64) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	as := make(sort.Float64Slice, len(a))
-	bs := make(sort.Float64Slice, len(b))
-	copy(as, a)
-	copy(bs, b)
-	// NOTE(swfrench): Assumption: comparison under Sort operates within floatEq tolerance.
-	sort.Sort(as)
-	sort.Sort(bs)
-	for i := range as {
-		if !floatEq(as[i], bs[i]) {
-			return false
-		}
-	}
-	return true
 }
 
 func testRunConsumer(t *testing.T, c *consumer.Consumer) {
@@ -154,37 +160,70 @@ func testRunConsumer(t *testing.T, c *consumer.Consumer) {
 	}
 }
 
-// Tests:
-
-func TestSimple(t *testing.T) {
-	const testPeriod = 10 * time.Millisecond
-
-	tailer := &MockTailer{}
-	e := &MockExporter{}
-	c := consumer.NewConsumer(testPeriod, tailer, e, []string{})
-
-	testRunConsumer(t, c)
-
-	// Now check call counts.
-	if tailer.callCount == 0 {
-		t.Fatalf("Consumer did not call MockTailer.Next()")
-	}
-	if e.callCount == 0 {
-		t.Fatalf("Consumer did not call MockExporter.IncrementStatusCounter()")
-	}
+type mockMetricsSet struct {
+	responseCounts         *mock_metrics.MockCounterT
+	responseCountsDetailed *mock_metrics.MockCounterT
+	responseTime           *mock_metrics.MockHistogramT
+	responseSize           *mock_metrics.MockHistogramT
 }
 
-func TestBasicStats(t *testing.T) {
+func mockInit(ctrl *gomock.Controller) (*mock_tailer.MockTailerT, *mock_metrics.MockMetricsManagerT, *mockMetricsSet) {
+	t := mock_tailer.NewMockTailerT(ctrl)
+	m := mock_metrics.NewMockMetricsManagerT(ctrl)
+
+	m.EXPECT().AddCounter("http_response_count", "Counts of responses by status code", []string{
+		"status_code",
+	}).Return(nil)
+
+	m.EXPECT().AddCounter("detailed_http_response_count", "Counts of responses by status code, path, and method", []string{
+		"status_code",
+		"path",
+		"method",
+	}).Return(nil)
+
+	m.EXPECT().AddHistogram("http_response_time", "Response time (seconds) by status code", []string{
+		"status_code",
+	}, gomock.Nil()).Return(nil)
+
+	// TODO(swfrench): Match buckets.
+	m.EXPECT().AddHistogram("http_response_bytes_sent", "Response size (bytes) by status code", []string{
+		"status_code",
+	}, FloatElementsEq([]float64{8, 16, 64, 128, 256, 512, 1024, 2048, 4096})).Return(nil)
+
+	s := &mockMetricsSet{
+		responseCounts:         mock_metrics.NewMockCounterT(ctrl),
+		responseCountsDetailed: mock_metrics.NewMockCounterT(ctrl),
+		responseTime:           mock_metrics.NewMockHistogramT(ctrl),
+		responseSize:           mock_metrics.NewMockHistogramT(ctrl),
+	}
+
+	m.EXPECT().GetCounter("http_response_count").AnyTimes().Return(s.responseCounts, nil)
+	m.EXPECT().GetCounter("detailed_http_response_count").AnyTimes().Return(s.responseCountsDetailed, nil)
+	m.EXPECT().GetHistogram("http_response_time").AnyTimes().Return(s.responseTime, nil)
+	m.EXPECT().GetHistogram("http_response_bytes_sent").AnyTimes().Return(s.responseSize, nil)
+
+	return t, m, s
+}
+
+// Tests
+
+func TestWithoutDetailedCounts(t *testing.T) {
 	const testPeriod = 10 * time.Millisecond
 
-	creationTime := time.Now()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	tailer := &MockTailer{}
-	e := &MockExporter{creationTime: creationTime}
-	c := consumer.NewConsumer(testPeriod, tailer, e, []string{})
+	tailer, manager, metricsSet := mockInit(ctrl)
 
-	timeEarly := creationTime.Add(-1 * time.Minute).Format(consumer.ISO8601)
-	timeLate := creationTime.Add(time.Minute).Format(consumer.ISO8601)
+	minCreationTime := time.Now()
+	c, err := consumer.NewConsumer(testPeriod, tailer, manager, []string{})
+	if err != nil {
+		t.Fatalf("Could not build new consumer: %v", err)
+	}
+	maxCreationTime := time.Now()
+
+	timeEarly := minCreationTime.Add(-1 * time.Minute).Format(consumer.ISO8601)
+	timeLate := maxCreationTime.Add(time.Minute).Format(consumer.ISO8601)
 
 	var buffer bytes.Buffer
 	for _, line := range []logLine{
@@ -192,7 +231,7 @@ func TestBasicStats(t *testing.T) {
 			Time:        timeEarly,
 			Status:      "200",
 			RequestTime: "0.010",
-			BytesSent:   "10",
+			BytesSent:   "100",
 			Method:      "GET",
 			Path:        "/",
 		},
@@ -200,7 +239,7 @@ func TestBasicStats(t *testing.T) {
 			Time:        timeLate,
 			Status:      "200",
 			RequestTime: "0.020",
-			BytesSent:   "20",
+			BytesSent:   "200",
 			Method:      "GET",
 			Path:        "/foo",
 		},
@@ -208,7 +247,7 @@ func TestBasicStats(t *testing.T) {
 			Time:        timeLate,
 			Status:      "200",
 			RequestTime: "0.030",
-			BytesSent:   "30",
+			BytesSent:   "300",
 			Method:      "POST",
 			Path:        "/foo",
 		},
@@ -216,7 +255,7 @@ func TestBasicStats(t *testing.T) {
 			Time:        timeLate,
 			Status:      "500",
 			RequestTime: "0.040",
-			BytesSent:   "40",
+			BytesSent:   "400",
 			Method:      "GET",
 			Path:        "/foo?bar=1",
 		},
@@ -224,70 +263,45 @@ func TestBasicStats(t *testing.T) {
 		buildLogLine(line, &buffer)
 	}
 
-	tailer.content = buffer.Bytes()
+	gomock.InOrder(
+		tailer.EXPECT().Next().Times(1).Return(buffer.Bytes(), nil),
+		tailer.EXPECT().Next().AnyTimes().Return([]byte{}, nil),
+	)
+
+	metricsSet.responseCounts.EXPECT().Add(map[string]string{"status_code": "200"}, FloatEq(2)).Return(nil)
+	metricsSet.responseCounts.EXPECT().Add(map[string]string{"status_code": "500"}, FloatEq(1)).Return(nil)
+
+	metricsSet.responseCountsDetailed.EXPECT().Add(gomock.Any(), gomock.Any()).Times(0)
+
+	metricsSet.responseTime.EXPECT().Observe(map[string]string{"status_code": "200"}, FloatElementsEq([]float64{0.02, 0.03})).Return(nil)
+	metricsSet.responseTime.EXPECT().Observe(map[string]string{"status_code": "500"}, FloatElementsEq([]float64{0.04})).Return(nil)
+
+	metricsSet.responseSize.EXPECT().Observe(map[string]string{"status_code": "200"}, FloatElementsEq([]float64{200, 300})).Return(nil)
+	metricsSet.responseSize.EXPECT().Observe(map[string]string{"status_code": "500"}, FloatElementsEq([]float64{400})).Return(nil)
 
 	testRunConsumer(t, c)
-
-	// Now check call counts.
-	if tailer.callCount == 0 {
-		t.Fatalf("Consumer did not call MockTailer.Next()")
-	}
-	if e.callCount == 0 {
-		t.Fatalf("Consumer did not call MockExporter.IncrementStatusCounter()")
-	}
-	if e.detailedCallCount == 0 {
-		t.Fatalf("Consumer did not call MockExporter.IncrementDetailedStatusCounter()")
-	}
-	if e.latencyCallCount == 0 {
-		t.Fatalf("Consumer did not call MockExporter.RecordLatencyObservations()")
-	}
-	if e.bytesSentCallCount == 0 {
-		t.Fatalf("Consumer did not call MockExporter.RecordBytesSentObservations()")
-	}
-
-	// And content.
-	for code, count := range map[string]float64{
-		"200": 2,
-		"500": 1,
-	} {
-		if got, want := e.statusCounts[code], count; !floatEq(got, want) {
-			t.Fatalf("Exporter returned %v for %s status count, wanted %v", got, code, want)
-		}
-	}
-	for code, obs := range map[string][]float64{
-		"200": {0.02, 0.03},
-		"500": {0.04},
-	} {
-		if got, want := e.latencyObservations[code], obs; !unorderedFloatElementsEq(got, want) {
-			t.Fatalf("Exporter was provided with a set of latency observations that did not match for status %s: got %v, want %v", code, got, want)
-		}
-	}
-	for code, obs := range map[string][]float64{
-		"200": {20, 30},
-		"500": {40},
-	} {
-		if got, want := e.bytesSentObservations[code], obs; !unorderedFloatElementsEq(got, want) {
-			t.Fatalf("Exporter was provided with a set of bytes-sent observations that did not match for status %s: got %v, want %v", code, got, want)
-		}
-	}
-	if got, want := len(e.detailedStatusCounts), 0; got != want {
-		t.Fatalf("Exporter was provided with detailed status counts, even though no paths were configured; got: %v", e.detailedStatusCounts)
-	}
 }
 
-func TestDetailedStats(t *testing.T) {
+func TestWithDetailedCounts(t *testing.T) {
 	const testPeriod = 10 * time.Millisecond
 
-	creationTime := time.Now()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	tailer := &MockTailer{}
-	e := &MockExporter{creationTime: creationTime}
-	c := consumer.NewConsumer(testPeriod, tailer, e, []string{
+	tailer, manager, metricsSet := mockInit(ctrl)
+
+	minCreationTime := time.Now()
+	c, err := consumer.NewConsumer(testPeriod, tailer, manager, []string{
 		"/foo",
+		"/bar",
 	})
+	if err != nil {
+		t.Fatalf("Could not build new consumer: %v", err)
+	}
+	maxCreationTime := time.Now()
 
-	timeEarly := creationTime.Add(-1 * time.Minute).Format(consumer.ISO8601)
-	timeLate := creationTime.Add(time.Minute).Format(consumer.ISO8601)
+	timeEarly := minCreationTime.Add(-1 * time.Minute).Format(consumer.ISO8601)
+	timeLate := maxCreationTime.Add(time.Minute).Format(consumer.ISO8601)
 
 	var buffer bytes.Buffer
 	for _, line := range []logLine{
@@ -295,137 +309,83 @@ func TestDetailedStats(t *testing.T) {
 			Time:        timeEarly,
 			Status:      "200",
 			RequestTime: "0.010",
-			BytesSent:   "10",
+			BytesSent:   "100",
 			Method:      "GET",
 			Path:        "/",
 		},
 		{
-			Time:        timeEarly,
+			Time:        timeLate,
 			Status:      "200",
-			RequestTime: "0.010",
-			BytesSent:   "10",
+			RequestTime: "0.020",
+			BytesSent:   "200",
 			Method:      "GET",
 			Path:        "/foo",
 		},
 		{
 			Time:        timeLate,
 			Status:      "200",
-			RequestTime: "0.020",
-			BytesSent:   "20",
-			Method:      "GET",
-			Path:        "/",
+			RequestTime: "0.030",
+			BytesSent:   "300",
+			Method:      "POST",
+			Path:        "/foo",
 		},
 		{
 			Time:        timeLate,
 			Status:      "200",
-			RequestTime: "0.030",
-			BytesSent:   "30",
+			RequestTime: "0.040",
+			BytesSent:   "400",
 			Method:      "GET",
 			Path:        "/foo",
 		},
 		{
 			Time:        timeLate,
 			Status:      "500",
-			RequestTime: "0.040",
-			BytesSent:   "40",
-			Method:      "GET",
-			Path:        "/foo",
-		},
-		{
-			Time:        timeLate,
-			Status:      "200",
 			RequestTime: "0.050",
-			BytesSent:   "50",
-			Method:      "POST",
-			Path:        "/foo",
+			BytesSent:   "500",
+			Method:      "GET",
+			Path:        "/bar?baz=1",
 		},
 		{
 			Time:        timeLate,
 			Status:      "500",
 			RequestTime: "0.060",
-			BytesSent:   "60",
+			BytesSent:   "600",
 			Method:      "GET",
-			Path:        "/foo?bar=1",
+			Path:        "/baz",
 		},
 	} {
 		buildLogLine(line, &buffer)
 	}
 
-	tailer.content = buffer.Bytes()
+	gomock.InOrder(
+		tailer.EXPECT().Next().Times(1).Return(buffer.Bytes(), nil),
+		tailer.EXPECT().Next().AnyTimes().Return([]byte{}, nil),
+	)
+
+	metricsSet.responseCounts.EXPECT().Add(map[string]string{"status_code": "200"}, FloatEq(3)).Return(nil)
+	metricsSet.responseCounts.EXPECT().Add(map[string]string{"status_code": "500"}, FloatEq(2)).Return(nil)
+
+	metricsSet.responseCountsDetailed.EXPECT().Add(map[string]string{
+		"status_code": "200",
+		"path":        "/foo",
+		"method":      "GET",
+	}, FloatEq(2)).Return(nil)
+	metricsSet.responseCountsDetailed.EXPECT().Add(map[string]string{
+		"status_code": "200",
+		"path":        "/foo",
+		"method":      "POST",
+	}, FloatEq(1)).Return(nil)
+	metricsSet.responseCountsDetailed.EXPECT().Add(map[string]string{
+		"status_code": "500",
+		"path":        "/bar",
+		"method":      "GET",
+	}, FloatEq(1)).Return(nil)
+
+	metricsSet.responseTime.EXPECT().Observe(map[string]string{"status_code": "200"}, FloatElementsEq([]float64{0.02, 0.03, 0.04})).Return(nil)
+	metricsSet.responseTime.EXPECT().Observe(map[string]string{"status_code": "500"}, FloatElementsEq([]float64{0.05, 0.06})).Return(nil)
+
+	metricsSet.responseSize.EXPECT().Observe(map[string]string{"status_code": "200"}, FloatElementsEq([]float64{200, 300, 400})).Return(nil)
+	metricsSet.responseSize.EXPECT().Observe(map[string]string{"status_code": "500"}, FloatElementsEq([]float64{500, 600})).Return(nil)
 
 	testRunConsumer(t, c)
-
-	// Now check call counts.
-	if tailer.callCount == 0 {
-		t.Fatalf("Consumer did not call MockTailer.Next()")
-	}
-	if e.callCount == 0 {
-		t.Fatalf("Consumer did not call MockExporter.IncrementStatusCounter()")
-	}
-	if e.detailedCallCount == 0 {
-		t.Fatalf("Consumer did not call MockExporter.IncrementDetailedStatusCounter()")
-	}
-	if e.latencyCallCount == 0 {
-		t.Fatalf("Consumer did not call MockExporter.RecordLatencyObservations()")
-	}
-	if e.bytesSentCallCount == 0 {
-		t.Fatalf("Consumer did not call MockExporter.RecordBytesSentObservations()")
-	}
-
-	// And content.
-	for code, count := range map[string]float64{
-		"200": 3,
-		"500": 2,
-	} {
-		if got, want := e.statusCounts[code], count; !floatEq(got, want) {
-			t.Fatalf("Exporter returned %v for %s status count, wanted %v", got, code, want)
-		}
-	}
-	for code, obs := range map[string][]float64{
-		"200": {0.02, 0.03, 0.05},
-		"500": {0.04, 0.06},
-	} {
-		if got, want := e.latencyObservations[code], obs; !unorderedFloatElementsEq(got, want) {
-			t.Fatalf("Exporter was provided with a set of latency observations that did not match for status %s: got %v, want %v", code, got, want)
-		}
-	}
-	for code, obs := range map[string][]float64{
-		"200": {20, 30, 50},
-		"500": {40, 60},
-	} {
-		if got, want := e.bytesSentObservations[code], obs; !unorderedFloatElementsEq(got, want) {
-			t.Fatalf("Exporter was provided with a set of bytes-sent observations that did not match for status %s: got %v, want %v", code, got, want)
-		}
-	}
-	for _, expected := range []exporter.DetailedStatusCount{
-		{
-			Count:  1,
-			Path:   "/foo",
-			Method: "GET",
-			Status: "200",
-		},
-		{
-			Count:  1,
-			Path:   "/foo",
-			Method: "POST",
-			Status: "200",
-		},
-		{
-			Count:  2,
-			Path:   "/foo",
-			Method: "GET",
-			Status: "500",
-		},
-	} {
-		found := false
-		for _, got := range e.detailedStatusCounts {
-			if got == expected {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("Expected exporter to be called with %v, but this is not in: %v", expected, e.detailedStatusCounts)
-		}
-	}
 }
