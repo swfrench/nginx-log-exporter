@@ -20,7 +20,7 @@ var (
 )
 
 const (
-	floatEqualityAbsoluteTol = 1e-9
+	floatEqRelativeTolerance = 1e-9
 	logTemplateFormat        = "{\"time\": \"{{.Time}}\", \"status\": \"{{.Status}}\", \"request_time\": {{.RequestTime}}, \"request\": \"{{.Method}} {{.Path}} HTTP/1.1\", \"bytes_sent\": {{.BytesSent}}}\n"
 )
 
@@ -31,8 +31,10 @@ func init() {
 // Custom Matchers
 
 func floatEq(a, b float64) bool {
-	// TODO(swfrench): Maybe relative equality.
-	return math.Abs(a-b) <= floatEqualityAbsoluteTol
+	if scale := math.Max(math.Abs(a), math.Abs(b)); scale > 0 {
+		return math.Abs(a-b)/scale < floatEqRelativeTolerance
+	}
+	return true
 }
 
 type FloatMatcher struct {
@@ -185,7 +187,6 @@ func mockInit(ctrl *gomock.Controller) (*mock_tailer.MockTailerT, *mock_metrics.
 		"status_code",
 	}, gomock.Nil()).Return(nil)
 
-	// TODO(swfrench): Match buckets.
 	m.EXPECT().AddHistogram("http_response_bytes_sent", "Response size (bytes) by status code", []string{
 		"status_code",
 	}, FloatElementsEq([]float64{8, 16, 64, 128, 256, 512, 1024, 2048, 4096})).Return(nil)
