@@ -1,6 +1,6 @@
 # Export metrics from nginx access logs to Prometheus
 
-![master build status](https://travis-ci.org/swfrench/nginx-log-exporter.svg?branch=master)
+![main build status](https://travis-ci.org/swfrench/nginx-log-exporter.svg?branch=main)
 
 A small utility for exporting metrics inferred from nginx access logs to
 [Prometheus](https://prometheus.io).
@@ -15,7 +15,8 @@ The following metrics are currently supported:
 
 *   Response counts, by HTTP response code
 *   "Detailed" response counts, by HTTP response code, method, and path (only
-    enabled for exact-match whitelisted paths; see `-monitored_paths`)
+    enabled for a configurable set of exact-match paths; see
+    `-monitored_paths`)
 *   Response time (i.e. request processing latency) distribution, by HTTP
     response code
 
