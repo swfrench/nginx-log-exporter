@@ -5,10 +5,6 @@
 A small utility for exporting metrics inferred from nginx access logs to
 [Prometheus](https://prometheus.io).
 
-Similar in concept to
-[nginx-log-consumer](https://github.com/swfrench/nginx-log-consumer), but
-Prometheus flavored, rather than tied to the Stackdriver Monitoring API.
-
 ## Metrics
 
 The following metrics are currently supported:
@@ -20,19 +16,17 @@ The following metrics are currently supported:
 *   Response time (i.e. request processing latency) distribution, by HTTP
     response code
 
-## Requirements
+## Building
 
-### Build
+`go get github.com/swfrench/nginx-log-exporter` will fetch all required
+dependencies and build the `nginx-log-exporter` binary (which will be placed in
+your `$GOPATH/bin`).
 
-Run:
+If working from a local copy of this source tree, `go build` from the base
+directory should suffice (producing a binary reflecting any local changes you
+have made).
 
-    go get -u github.com/swfrench/nginx-log-exporter
-
-to build the exporter, which should now be in `$GOPATH/bin` (this will also
-pull in transitive dependencies, such as the Metadata service and Prometheus go
-client).
-
-### Log format
+## Log format
 
 It is expected that nginx has been configured to write logs as json with ISO
 8601 timestamps. A minimal example (you'll probably want more fields):
