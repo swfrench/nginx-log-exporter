@@ -68,25 +68,40 @@ func parseJson(b []byte) (*parsedLogLine, error) {
 }
 
 func parseClf(b []byte) (*parsedLogLine, error) {
-	var unusedRemoteHost, unusedClientId, unusedUserId, arrivalTime, arrivalTimeZone, request, status string
-	var bytesSent float64
-	s := string(b)
-	n, err := fmt.Sscanf(s, "%s %s %s [%s %5s] %q %s %f", &unusedRemoteHost, &unusedClientId, &unusedUserId, &arrivalTime, &arrivalTimeZone, &request, &status, &bytesSent)
-	if want := 8; n < want {
-		return nil, fmt.Errorf("Could not parse log line: expected %d fields, extracted %d (full line: \"%s\")", want, n, s)
-	} else if err != nil {
-		return nil, fmt.Errorf("Could not parse log line: %v", err)
+	line := &struct {
+		// Note: Most of these are unused for now.
+		RemoteHost  string
+		ClientId    string
+		UserId      string
+		Time        string
+		TimeZone    string
+		Request     string
+		Status      string
+		BytesSent   float64
+		RequestTime float64
+	}{
+		// Not supported in CLF.
+		RequestTime: -1,
 	}
-	t, err := time.Parse(CLF, fmt.Sprintf("%s %s", arrivalTime, arrivalTimeZone))
+
+	s := string(b)
+	if numItems, err := fmt.Sscanf(s, "%s %s %s [%s %5s] %q %s %f", &line.RemoteHost, &line.ClientId, &line.UserId, &line.Time, &line.TimeZone, &line.Request, &line.Status, &line.BytesSent); err != nil {
+		return nil, fmt.Errorf("Could not parse log line: %v", err)
+	} else if want := 8; numItems < want {
+		return nil, fmt.Errorf("Could not parse log line: expected %d fields, extracted %d (full line: \"%s\")", want, numItems, s)
+	}
+
+	t, err := time.Parse(CLF, fmt.Sprintf("%s %s", line.Time, line.TimeZone))
 	if err != nil {
 		return nil, fmt.Errorf("Could not parse log line timestamp: %v", err)
 	}
+
 	return &parsedLogLine{
 		Time:        t,
-		Request:     request,
-		Status:      status,
-		RequestTime: -1, // Not supported in CLF
-		BytesSent:   bytesSent,
+		Request:     line.Request,
+		Status:      line.Status,
+		RequestTime: line.RequestTime,
+		BytesSent:   line.BytesSent,
 	}, nil
 }
 
