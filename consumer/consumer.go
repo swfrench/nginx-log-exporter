@@ -15,6 +15,9 @@ import (
 )
 
 const (
+	// CLF contains a time.Parse reference timestamp for strftime "%d/%b/%Y:%H:%M:%S %z" used in CLF.
+	CLF = "02/Jan/2006:15:04:05 -0700"
+
 	// ISO8601 contains a time.Parse reference timestamp for ISO 8601.
 	ISO8601 = "2006-01-02T15:04:05-07:00"
 )
@@ -24,12 +27,67 @@ var (
 	bytesSentBuckets = []float64{8, 16, 64, 128, 256, 512, 1024, 2048, 4096}
 )
 
-type logLine struct {
-	Time        string  `json:"time"`
-	Request     string  `json:"request"`
-	Status      string  `json:"status"`
-	RequestTime float64 `json:"request_time"`
-	BytesSent   float64 `json:"bytes_sent"`
+// Common representation for a parsed log line (across log formats)
+type parsedLogLine struct {
+	Time    time.Time
+	Request string
+	Status  string
+	// Values less than 0 for the following two fields indicate they are not present.
+	RequestTime float64
+	BytesSent   float64
+}
+
+func parseJson(b []byte) (*parsedLogLine, error) {
+	line := &struct {
+		Time        string  `json:"time"`
+		Request     string  `json:"request"`
+		Status      string  `json:"status"`
+		RequestTime float64 `json:"request_time"`
+		BytesSent   float64 `json:"bytes_sent"`
+	}{
+		RequestTime: -1,
+		BytesSent:   -1,
+	}
+
+	if err := json.Unmarshal(b, line); err != nil {
+		return nil, fmt.Errorf("Could not parse log line: %v", err)
+	}
+
+	t, err := time.Parse(ISO8601, line.Time)
+	if err != nil {
+		return nil, fmt.Errorf("Could not parse log line timestamp: %v", err)
+	}
+
+	return &parsedLogLine{
+		Time:        t,
+		Request:     line.Request,
+		Status:      line.Status,
+		RequestTime: line.RequestTime,
+		BytesSent:   line.BytesSent,
+	}, nil
+}
+
+func parseClf(b []byte) (*parsedLogLine, error) {
+	var unusedRemoteHost, unusedClientId, unusedUserId, arrivalTime, arrivalTimeZone, request, status string
+	var bytesSent float64
+	s := string(b)
+	n, err := fmt.Sscanf(s, "%s %s %s [%s %5s] %q %s %f", &unusedRemoteHost, &unusedClientId, &unusedUserId, &arrivalTime, &arrivalTimeZone, &request, &status, &bytesSent)
+	if want := 8; n < want {
+		return nil, fmt.Errorf("Could not parse log line: expected %d fields, extracted %d (full line: \"%s\")", want, n, s)
+	} else if err != nil {
+		return nil, fmt.Errorf("Could not parse log line: %v", err)
+	}
+	t, err := time.Parse(CLF, fmt.Sprintf("%s %s", arrivalTime, arrivalTimeZone))
+	if err != nil {
+		return nil, fmt.Errorf("Could not parse log line timestamp: %v", err)
+	}
+	return &parsedLogLine{
+		Time:        t,
+		Request:     request,
+		Status:      status,
+		RequestTime: -1, // Not supported in CLF
+		BytesSent:   bytesSent,
+	}, nil
 }
 
 type annotatedCount struct {
@@ -116,6 +174,7 @@ type Consumer struct {
 	paths                      map[string]bool
 	stop                       chan bool
 	initFinshed                time.Time
+	parse                      func([]byte) (*parsedLogLine, error)
 	httpResposeCounter         metrics.CounterT
 	detailedHttpResposeCounter metrics.CounterT
 	httpResposeTimeHist        metrics.HistogramT
@@ -125,8 +184,10 @@ type Consumer struct {
 // NewConsumer returns a Consumer polling the supplied tailer for new access
 // log lines and exporting counts / stats to the supplied manager at the
 // specified period. The specific metrics exported by the Consumer will be
-// created during init in NewConsumer.
-func NewConsumer(period time.Duration, tailer tailer.TailerT, manager metrics.MetricsManagerT, paths []string) (*Consumer, error) {
+// created during init in NewConsumer. Log lines provided by the tailer are
+// expected to be in the supplied format, of which "JSON" (see README.md) and
+// "CLF" are supported.
+func NewConsumer(period time.Duration, tailer tailer.TailerT, manager metrics.MetricsManagerT, paths []string, format string) (*Consumer, error) {
 	c := &Consumer{
 		Period:  period,
 		tailer:  tailer,
@@ -136,6 +197,15 @@ func NewConsumer(period time.Duration, tailer tailer.TailerT, manager metrics.Me
 	}
 	for _, path := range paths {
 		c.paths[path] = true
+	}
+
+	switch format {
+	case "JSON":
+		c.parse = parseJson
+	case "CLF":
+		c.parse = parseClf
+	default:
+		return nil, fmt.Errorf("Unsupported log format: \"%s\"", format)
 	}
 
 	if err := manager.AddCounter("http_response_count", "Counts of responses by status code", []string{
@@ -189,7 +259,7 @@ func NewConsumer(period time.Duration, tailer tailer.TailerT, manager metrics.Me
 	return c, nil
 }
 
-func (c *Consumer) consumeLine(line *logLine, stats *logStats) {
+func (c *Consumer) consumeLine(line *parsedLogLine, stats *logStats) {
 	stats.statusCounts.inc(line.Status, nil)
 
 	if line.RequestTime >= 0 {
@@ -224,28 +294,10 @@ func (c *Consumer) consumeBytes(b []byte) error {
 
 	scanner := bufio.NewScanner(bytes.NewReader(b))
 	for scanner.Scan() {
-		lineBytes := scanner.Bytes()
-
-		line := &logLine{
-			// Sentinal values for numeric fields that might not be present.
-			RequestTime: -1,
-			BytesSent:   -1,
-		}
-
-		err := json.Unmarshal(lineBytes, line)
-		if err != nil {
+		if nextLine, err := c.parse(scanner.Bytes()); err != nil {
 			log.Printf("Error parsing log line: %v", err)
-			continue
-		}
-
-		t, err := time.Parse(ISO8601, line.Time)
-		if err != nil {
-			log.Printf("Could not parse time %v: %v", line.Time, err)
-			continue
-		}
-
-		if t.After(c.initFinshed) {
-			c.consumeLine(line, stats)
+		} else if nextLine.Time.After(c.initFinshed) {
+			c.consumeLine(nextLine, stats)
 		}
 	}
 

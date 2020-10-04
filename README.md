@@ -15,6 +15,8 @@ The following metrics are currently supported:
     `-monitored_paths`)
 *   Response time (i.e. request processing latency) distribution, by HTTP
     response code
+*   Response size (i.e. bytes sent, headers inclusive) distribution, by HTTP
+    response code
 
 ## Building
 
@@ -28,9 +30,22 @@ have made).
 
 ## Log format
 
-It is expected that nginx has been configured to write logs as json with ISO
-8601 timestamps. A minimal example (you'll probably want more fields):
+Two access log formats are supported:
 
+*   JSON: A custom format described in more detail below (default).
+*   [Common Log Format](https://en.wikipedia.org/wiki/Common_Log_Format): CLF
+    is the basic default format for nginx (well, really an extension thereof).
+    Note that response time metrics are not supported under CLF.
+
+Which format is expected by the exporter is controlled by the
+`-access_log_format` flag (supported values being "CLF" and "JSON" with the
+latter being the default).
+
+If using the JSON log line format, nginx should be configured to write access
+logs with _at least_ the following fields present (additional fields are fine,
+and will be ignored):
+
+    # Example minimal log format
     log_format json_combined escape=json '{ '
         '"time": "$time_iso8601", '
         '"request": "$request", '
@@ -39,15 +54,12 @@ It is expected that nginx has been configured to write logs as json with ISO
         '"request_time": $request_time }';
     access_log /var/log/nginx/access.log json_combined;
 
-For now, only the `time`, `status`, `request_time`, `bytes_sent`, and `request`
-(for detailed path / method metrics) fields are examined (any others will be
-ignored).
-
 **Note:** The `escape` parameter for `log_format` is only supported by nginx
 1.11.8 and later.
 
 ## Running on GCE
 
-If running on GCE, you can set `-use_metadata_service_labels` to pull the
-instance name and zone from the Metadata service, which will in turn be added
-to your metrics.
+If running in a GCE VM instance, you can set the `-use_metadata_service_labels`
+flag to pull the instance name and zone from the Metadata service, which will
+in turn be added to your metrics (along with any additional key=value label
+pairs provided via the `-custom_labels` flag).

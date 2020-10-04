@@ -16,16 +16,19 @@ import (
 )
 
 var (
-	logTemplate *template.Template
+	jsonLogTemplate *template.Template
+	clfLogTemplate  *template.Template
 )
 
 const (
 	floatEqRelativeTolerance = 1e-9
-	logTemplateFormat        = "{\"time\": \"{{.Time}}\", \"status\": \"{{.Status}}\", \"request_time\": {{.RequestTime}}, \"request\": \"{{.Method}} {{.Path}} HTTP/1.1\", \"bytes_sent\": {{.BytesSent}}}\n"
+	jsonLogTemplateFormat    = "{\"time\": \"{{.Time}}\", \"status\": \"{{.Status}}\", \"request_time\": {{.RequestTime}}, \"request\": \"{{.Method}} {{.Path}} HTTP/1.1\", \"bytes_sent\": {{.BytesSent}}, \"some_other\": \"stuff\"}\n"
+	clfLogTemplateFormat     = "127.0.0.1 - - [{{.Time}}] \"{{.Method}} {{.Path}} HTTP/1.1\" {{.Status}} {{.BytesSent}} some other stuff\n"
 )
 
 func init() {
-	logTemplate = template.Must(template.New("logLine").Parse(logTemplateFormat))
+	jsonLogTemplate = template.Must(template.New("jsonLogLine").Parse(jsonLogTemplateFormat))
+	clfLogTemplate = template.Must(template.New("clfLogLine").Parse(clfLogTemplateFormat))
 }
 
 // Custom Matchers
@@ -132,8 +135,14 @@ type logLine struct {
 	Path        string
 }
 
-func buildLogLine(line logLine, buffer *bytes.Buffer) error {
-	return logTemplate.Execute(buffer, line)
+func buildLogLine(format string, line logLine, buffer *bytes.Buffer) error {
+	switch format {
+	case "JSON":
+		return jsonLogTemplate.Execute(buffer, line)
+	case "CLF":
+		return clfLogTemplate.Execute(buffer, line)
+	}
+	return fmt.Errorf("Unsupported log line format: %s", format)
 }
 
 func testRunConsumer(t *testing.T, c *consumer.Consumer) {
@@ -208,7 +217,7 @@ func mockInit(ctrl *gomock.Controller) (*mock_tailer.MockTailerT, *mock_metrics.
 
 // Tests
 
-func TestWithoutDetailedCounts(t *testing.T) {
+func testWithoutDetailedCountsBase(format, timeExample string, t *testing.T) {
 	const testPeriod = 10 * time.Millisecond
 
 	ctrl := gomock.NewController(t)
@@ -217,14 +226,14 @@ func TestWithoutDetailedCounts(t *testing.T) {
 	tailer, manager, metricsSet := mockInit(ctrl)
 
 	minCreationTime := time.Now()
-	c, err := consumer.NewConsumer(testPeriod, tailer, manager, []string{})
+	c, err := consumer.NewConsumer(testPeriod, tailer, manager, []string{}, format)
 	if err != nil {
 		t.Fatalf("Could not build new consumer: %v", err)
 	}
 	maxCreationTime := time.Now()
 
-	timeEarly := minCreationTime.Add(-1 * time.Minute).Format(consumer.ISO8601)
-	timeLate := maxCreationTime.Add(time.Minute).Format(consumer.ISO8601)
+	timeEarly := minCreationTime.Add(-1 * time.Minute).Format(timeExample)
+	timeLate := maxCreationTime.Add(time.Minute).Format(timeExample)
 
 	var buffer bytes.Buffer
 	for _, line := range []logLine{
@@ -261,7 +270,7 @@ func TestWithoutDetailedCounts(t *testing.T) {
 			Path:        "/foo?bar=1",
 		},
 	} {
-		buildLogLine(line, &buffer)
+		buildLogLine(format, line, &buffer)
 	}
 
 	gomock.InOrder(
@@ -274,8 +283,13 @@ func TestWithoutDetailedCounts(t *testing.T) {
 
 	metricsSet.responseCountsDetailed.EXPECT().Add(gomock.Any(), gomock.Any()).Times(0)
 
-	metricsSet.responseTime.EXPECT().Observe(map[string]string{"status_code": "200"}, FloatElementsEq([]float64{0.02, 0.03})).Return(nil)
-	metricsSet.responseTime.EXPECT().Observe(map[string]string{"status_code": "500"}, FloatElementsEq([]float64{0.04})).Return(nil)
+	// Plain CLF does not export response time.
+	if format == "CLF" {
+		metricsSet.responseTime.EXPECT().Observe(gomock.Any(), gomock.Any()).Times(0)
+	} else {
+		metricsSet.responseTime.EXPECT().Observe(map[string]string{"status_code": "200"}, FloatElementsEq([]float64{0.02, 0.03})).Return(nil)
+		metricsSet.responseTime.EXPECT().Observe(map[string]string{"status_code": "500"}, FloatElementsEq([]float64{0.04})).Return(nil)
+	}
 
 	metricsSet.responseSize.EXPECT().Observe(map[string]string{"status_code": "200"}, FloatElementsEq([]float64{200, 300})).Return(nil)
 	metricsSet.responseSize.EXPECT().Observe(map[string]string{"status_code": "500"}, FloatElementsEq([]float64{400})).Return(nil)
@@ -283,7 +297,15 @@ func TestWithoutDetailedCounts(t *testing.T) {
 	testRunConsumer(t, c)
 }
 
-func TestWithDetailedCounts(t *testing.T) {
+func TestWithoutDetailedCountsJson(t *testing.T) {
+	testWithoutDetailedCountsBase("JSON", consumer.ISO8601, t)
+}
+
+func TestWithoutDetailedCountsClf(t *testing.T) {
+	testWithoutDetailedCountsBase("CLF", consumer.CLF, t)
+}
+
+func testWithDetailedCountsBase(format, timeExample string, t *testing.T) {
 	const testPeriod = 10 * time.Millisecond
 
 	ctrl := gomock.NewController(t)
@@ -295,14 +317,14 @@ func TestWithDetailedCounts(t *testing.T) {
 	c, err := consumer.NewConsumer(testPeriod, tailer, manager, []string{
 		"/foo",
 		"/bar",
-	})
+	}, format)
 	if err != nil {
 		t.Fatalf("Could not build new consumer: %v", err)
 	}
 	maxCreationTime := time.Now()
 
-	timeEarly := minCreationTime.Add(-1 * time.Minute).Format(consumer.ISO8601)
-	timeLate := maxCreationTime.Add(time.Minute).Format(consumer.ISO8601)
+	timeEarly := minCreationTime.Add(-1 * time.Minute).Format(timeExample)
+	timeLate := maxCreationTime.Add(time.Minute).Format(timeExample)
 
 	var buffer bytes.Buffer
 	for _, line := range []logLine{
@@ -355,7 +377,7 @@ func TestWithDetailedCounts(t *testing.T) {
 			Path:        "/baz",
 		},
 	} {
-		buildLogLine(line, &buffer)
+		buildLogLine(format, line, &buffer)
 	}
 
 	gomock.InOrder(
@@ -382,11 +404,24 @@ func TestWithDetailedCounts(t *testing.T) {
 		"method":      "GET",
 	}, FloatEq(1)).Return(nil)
 
-	metricsSet.responseTime.EXPECT().Observe(map[string]string{"status_code": "200"}, FloatElementsEq([]float64{0.02, 0.03, 0.04})).Return(nil)
-	metricsSet.responseTime.EXPECT().Observe(map[string]string{"status_code": "500"}, FloatElementsEq([]float64{0.05, 0.06})).Return(nil)
+	// Plain CLF does not export response time.
+	if format == "CLF" {
+		metricsSet.responseTime.EXPECT().Observe(gomock.Any(), gomock.Any()).Times(0)
+	} else {
+		metricsSet.responseTime.EXPECT().Observe(map[string]string{"status_code": "200"}, FloatElementsEq([]float64{0.02, 0.03, 0.04})).Return(nil)
+		metricsSet.responseTime.EXPECT().Observe(map[string]string{"status_code": "500"}, FloatElementsEq([]float64{0.05, 0.06})).Return(nil)
+	}
 
 	metricsSet.responseSize.EXPECT().Observe(map[string]string{"status_code": "200"}, FloatElementsEq([]float64{200, 300, 400})).Return(nil)
 	metricsSet.responseSize.EXPECT().Observe(map[string]string{"status_code": "500"}, FloatElementsEq([]float64{500, 600})).Return(nil)
 
 	testRunConsumer(t, c)
+}
+
+func TestWithDetailedCountsJson(t *testing.T) {
+	testWithDetailedCountsBase("JSON", consumer.ISO8601, t)
+}
+
+func TestWithDetailedCountsClf(t *testing.T) {
+	testWithDetailedCountsBase("CLF", consumer.CLF, t)
 }

@@ -23,6 +23,8 @@ var (
 
 	accessLogPath = flag.String("access_log_path", "", "Path to access log file.")
 
+	accessLogFormat = flag.String("access_log_format", "JSON", "Format of log lines in the access log. Supported: JSON (see README) and CLF.")
+
 	logPollingPeriod = flag.Duration("log_polling_period", 30*time.Second, "Period between checks for new log lines.")
 
 	rotationCheckPeriod = flag.Duration("rotation_check_period", time.Minute, "Idle period between log rotation checks.")
@@ -136,7 +138,7 @@ func main() {
 		log.Fatal(http.ListenAndServe(*exportAddress, nil))
 	}()
 
-	c, err := consumer.NewConsumer(*logPollingPeriod, t, m, paths)
+	c, err := consumer.NewConsumer(*logPollingPeriod, t, m, paths, *accessLogFormat)
 	if err != nil {
 		log.Fatalf("Could not create consumer: %v", err)
 	}
