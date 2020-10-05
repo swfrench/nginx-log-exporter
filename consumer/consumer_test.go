@@ -11,8 +11,8 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/swfrench/nginx-log-exporter/consumer"
+	"github.com/swfrench/nginx-log-exporter/file/mock_tailer"
 	"github.com/swfrench/nginx-log-exporter/metrics/mock_metrics"
-	"github.com/swfrench/nginx-log-exporter/tailer/mock_tailer"
 )
 
 var (
@@ -178,9 +178,9 @@ type mockMetricsSet struct {
 	responseSize           *mock_metrics.MockHistogramT
 }
 
-func mockInit(ctrl *gomock.Controller) (*mock_tailer.MockTailerT, *mock_metrics.MockMetricsManagerT, *mockMetricsSet) {
+func mockInit(ctrl *gomock.Controller) (*mock_tailer.MockTailerT, *mock_metrics.MockManagerT, *mockMetricsSet) {
 	t := mock_tailer.NewMockTailerT(ctrl)
-	m := mock_metrics.NewMockMetricsManagerT(ctrl)
+	m := mock_metrics.NewMockManagerT(ctrl)
 
 	m.EXPECT().AddCounter("http_response_count", "Counts of responses by status code", []string{
 		"status_code",

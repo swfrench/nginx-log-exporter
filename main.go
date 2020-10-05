@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/swfrench/nginx-log-exporter/consumer"
+	"github.com/swfrench/nginx-log-exporter/file"
 	"github.com/swfrench/nginx-log-exporter/metrics"
-	"github.com/swfrench/nginx-log-exporter/tailer"
 
 	"cloud.google.com/go/compute/metadata"
 
@@ -62,7 +62,7 @@ func parseMonitoredPaths() ([]string, error) {
 			if len(elem) > 0 && len(strings.Fields(elem)) == 1 {
 				paths = append(paths, elem)
 			} else {
-				return nil, fmt.Errorf("Monitored paths must be non-empty and contain no whitespace.")
+				return nil, fmt.Errorf("monitored paths must be non-empty and contain no whitespace")
 			}
 		}
 	}
@@ -102,7 +102,7 @@ func main() {
 		log.SetOutput(w)
 	}
 
-	t, err := tailer.NewTailer(*accessLogPath, *rotationCheckPeriod)
+	t, err := file.NewTailer(*accessLogPath, *rotationCheckPeriod)
 	if err != nil {
 		log.Fatalf("Could not create tailer for %s: %v", *accessLogPath, err)
 	}
@@ -129,7 +129,7 @@ func main() {
 
 	log.Printf("Creating metrics manager for with base labels: %v", labels)
 
-	m := metrics.NewMetricsManager(labels)
+	m := metrics.NewManager(labels)
 
 	log.Printf("Starting prometheus exporter at %s", *exportAddress)
 

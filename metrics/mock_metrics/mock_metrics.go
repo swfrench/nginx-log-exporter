@@ -142,31 +142,31 @@ func (mr *MockHistogramTMockRecorder) CreationTime() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreationTime", reflect.TypeOf((*MockHistogramT)(nil).CreationTime))
 }
 
-// MockMetricsManagerT is a mock of MetricsManagerT interface
-type MockMetricsManagerT struct {
+// MockManagerT is a mock of ManagerT interface
+type MockManagerT struct {
 	ctrl     *gomock.Controller
-	recorder *MockMetricsManagerTMockRecorder
+	recorder *MockManagerTMockRecorder
 }
 
-// MockMetricsManagerTMockRecorder is the mock recorder for MockMetricsManagerT
-type MockMetricsManagerTMockRecorder struct {
-	mock *MockMetricsManagerT
+// MockManagerTMockRecorder is the mock recorder for MockManagerT
+type MockManagerTMockRecorder struct {
+	mock *MockManagerT
 }
 
-// NewMockMetricsManagerT creates a new mock instance
-func NewMockMetricsManagerT(ctrl *gomock.Controller) *MockMetricsManagerT {
-	mock := &MockMetricsManagerT{ctrl: ctrl}
-	mock.recorder = &MockMetricsManagerTMockRecorder{mock}
+// NewMockManagerT creates a new mock instance
+func NewMockManagerT(ctrl *gomock.Controller) *MockManagerT {
+	mock := &MockManagerT{ctrl: ctrl}
+	mock.recorder = &MockManagerTMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use
-func (m *MockMetricsManagerT) EXPECT() *MockMetricsManagerTMockRecorder {
+func (m *MockManagerT) EXPECT() *MockManagerTMockRecorder {
 	return m.recorder
 }
 
 // AddCounter mocks base method
-func (m *MockMetricsManagerT) AddCounter(name, help string, labelNames []string) error {
+func (m *MockManagerT) AddCounter(name, help string, labelNames []string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddCounter", name, help, labelNames)
 	ret0, _ := ret[0].(error)
@@ -174,13 +174,13 @@ func (m *MockMetricsManagerT) AddCounter(name, help string, labelNames []string)
 }
 
 // AddCounter indicates an expected call of AddCounter
-func (mr *MockMetricsManagerTMockRecorder) AddCounter(name, help, labelNames interface{}) *gomock.Call {
+func (mr *MockManagerTMockRecorder) AddCounter(name, help, labelNames interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddCounter", reflect.TypeOf((*MockMetricsManagerT)(nil).AddCounter), name, help, labelNames)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddCounter", reflect.TypeOf((*MockManagerT)(nil).AddCounter), name, help, labelNames)
 }
 
 // AddHistogram mocks base method
-func (m *MockMetricsManagerT) AddHistogram(name, help string, labelNames []string, buckets []float64) error {
+func (m *MockManagerT) AddHistogram(name, help string, labelNames []string, buckets []float64) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddHistogram", name, help, labelNames, buckets)
 	ret0, _ := ret[0].(error)
@@ -188,13 +188,13 @@ func (m *MockMetricsManagerT) AddHistogram(name, help string, labelNames []strin
 }
 
 // AddHistogram indicates an expected call of AddHistogram
-func (mr *MockMetricsManagerTMockRecorder) AddHistogram(name, help, labelNames, buckets interface{}) *gomock.Call {
+func (mr *MockManagerTMockRecorder) AddHistogram(name, help, labelNames, buckets interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddHistogram", reflect.TypeOf((*MockMetricsManagerT)(nil).AddHistogram), name, help, labelNames, buckets)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddHistogram", reflect.TypeOf((*MockManagerT)(nil).AddHistogram), name, help, labelNames, buckets)
 }
 
 // GetCounter mocks base method
-func (m *MockMetricsManagerT) GetCounter(name string) (metrics.CounterT, error) {
+func (m *MockManagerT) GetCounter(name string) (metrics.CounterT, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetCounter", name)
 	ret0, _ := ret[0].(metrics.CounterT)
@@ -203,13 +203,13 @@ func (m *MockMetricsManagerT) GetCounter(name string) (metrics.CounterT, error) 
 }
 
 // GetCounter indicates an expected call of GetCounter
-func (mr *MockMetricsManagerTMockRecorder) GetCounter(name interface{}) *gomock.Call {
+func (mr *MockManagerTMockRecorder) GetCounter(name interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCounter", reflect.TypeOf((*MockMetricsManagerT)(nil).GetCounter), name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCounter", reflect.TypeOf((*MockManagerT)(nil).GetCounter), name)
 }
 
 // GetHistogram mocks base method
-func (m *MockMetricsManagerT) GetHistogram(name string) (metrics.HistogramT, error) {
+func (m *MockManagerT) GetHistogram(name string) (metrics.HistogramT, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetHistogram", name)
 	ret0, _ := ret[0].(metrics.HistogramT)
@@ -218,7 +218,7 @@ func (m *MockMetricsManagerT) GetHistogram(name string) (metrics.HistogramT, err
 }
 
 // GetHistogram indicates an expected call of GetHistogram
-func (mr *MockMetricsManagerTMockRecorder) GetHistogram(name interface{}) *gomock.Call {
+func (mr *MockManagerTMockRecorder) GetHistogram(name interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHistogram", reflect.TypeOf((*MockMetricsManagerT)(nil).GetHistogram), name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHistogram", reflect.TypeOf((*MockManagerT)(nil).GetHistogram), name)
 }

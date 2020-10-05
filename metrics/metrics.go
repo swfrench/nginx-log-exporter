@@ -9,8 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// CounterT is an interface for "wrapped" (i.e. owned by the MetricsManager)
-// counters.
+// CounterT is an interface for "wrapped" (i.e. owned by the Manager) counters.
 type CounterT interface {
 	Add(labels map[string]string, value float64) error
 	Metric() *prometheus.CounterVec
@@ -44,7 +43,7 @@ func (c *Counter) Add(labels map[string]string, value float64) error {
 	return nil
 }
 
-// HistogramT is an interface for "wrapped" (i.e. owned by the MetricsManager)
+// HistogramT is an interface for "wrapped" (i.e. owned by the Manager)
 // histograms.
 type HistogramT interface {
 	Observe(labels map[string]string, values []float64) error
@@ -83,29 +82,28 @@ func (h *Histogram) Observe(labels map[string]string, values []float64) error {
 	return nil
 }
 
-// MetricsManagerT is an interface representing a MetricsManager (useful for
-// mocks).
-type MetricsManagerT interface {
+// ManagerT is an interface representing a Manager (useful for mocks).
+type ManagerT interface {
 	AddCounter(name, help string, labelNames []string) error
 	AddHistogram(name, help string, labelNames []string, buckets []float64) error
 	GetCounter(name string) (CounterT, error)
 	GetHistogram(name string) (HistogramT, error)
 }
 
-// MetricsManager is an abstraction ownership and access to counter and
-// histogram metrics, intended to reduce boilerplate over managing Prometheus
-// metrics directly.
-type MetricsManager struct {
+// Manager is an abstraction for ownership and access to counter and histogram
+// metrics, intended to reduce boilerplate over managing Prometheus metrics
+// directly.
+type Manager struct {
 	commonLabels map[string]string
 	counters     map[string]*Counter
 	histograms   map[string]*Histogram
 }
 
-// NewMetricsManager returns a MetricsManager configured with the supplied
-// "base" labels. All metrics created by the manager will be curried so as to
-// already have those labels partially applied.
-func NewMetricsManager(commonLabels map[string]string) *MetricsManager {
-	m := &MetricsManager{
+// NewManager returns a Manager configured with the supplied "base" labels. All
+// metrics created by the manager will be curried so as to already have those
+// labels partially applied.
+func NewManager(commonLabels map[string]string) *Manager {
+	m := &Manager{
 		counters:     make(map[string]*Counter),
 		histograms:   make(map[string]*Histogram),
 		commonLabels: make(map[string]string),
@@ -118,7 +116,7 @@ func NewMetricsManager(commonLabels map[string]string) *MetricsManager {
 
 // AddCounter adds a counter metric with the supplied name, help string, and
 // field labels.
-func (m *MetricsManager) AddCounter(name, help string, labelNames []string) error {
+func (m *Manager) AddCounter(name, help string, labelNames []string) error {
 	var allLabels sort.StringSlice
 	for k := range m.commonLabels {
 		allLabels = append(allLabels, k)
@@ -152,7 +150,7 @@ func (m *MetricsManager) AddCounter(name, help string, labelNames []string) erro
 // AddHistogram adds a histogram metric with the supplied name, help string,
 // field labels, and (optionally) buckets. Pass nil for buckets to use the
 // defaults.
-func (m *MetricsManager) AddHistogram(name, help string, labelNames []string, buckets []float64) error {
+func (m *Manager) AddHistogram(name, help string, labelNames []string, buckets []float64) error {
 	var allLabels sort.StringSlice
 	for k := range m.commonLabels {
 		allLabels = append(allLabels, k)
@@ -187,8 +185,8 @@ func (m *MetricsManager) AddHistogram(name, help string, labelNames []string, bu
 
 // GetCounter returns the counter with the specified name (i.e. passed on an
 // earlier call to AddCounter). Note that the returned counter will already
-// have the base labels supplied to the MetricsManager partially applied.
-func (m *MetricsManager) GetCounter(name string) (CounterT, error) {
+// have the base labels supplied to the Manager partially applied.
+func (m *Manager) GetCounter(name string) (CounterT, error) {
 	c, ok := m.counters[name]
 	if !ok {
 		return nil, fmt.Errorf("Unknown counter metric: %s", name)
@@ -198,9 +196,8 @@ func (m *MetricsManager) GetCounter(name string) (CounterT, error) {
 
 // GetHistogram returns the histogram with the specified name (i.e. passed on
 // an earlier call to AddHistogram). Note that the returned histogram will
-// already have the base labels supplied to the MetricsManager partially
-// applied.
-func (m *MetricsManager) GetHistogram(name string) (HistogramT, error) {
+// already have the base labels supplied to the Manager partially applied.
+func (m *Manager) GetHistogram(name string) (HistogramT, error) {
 	h, ok := m.histograms[name]
 	if !ok {
 		return nil, fmt.Errorf("Unknown histogram metric: %s", name)
@@ -209,7 +206,7 @@ func (m *MetricsManager) GetHistogram(name string) (HistogramT, error) {
 }
 
 // UnregisterAll unregisters all previously created metrics from prometheus.
-func (m *MetricsManager) UnregisterAll() error {
+func (m *Manager) UnregisterAll() error {
 	var failed []string
 	for n, c := range m.counters {
 		if !prometheus.Unregister(c.metric) {

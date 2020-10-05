@@ -1,4 +1,4 @@
-package tailer
+package file
 
 import (
 	"io/ioutil"
@@ -6,10 +6,15 @@ import (
 	"time"
 )
 
+// TailerT is an interface representing a Tailer (useful for mocks).
 type TailerT interface {
 	Next() ([]byte, error)
 }
 
+// Tailer is an abstraction for reading newly appended content from a file,
+// implementing TailerT (i.e. returning newly appended bytes on calls to
+// Next()). After idleDuration of file inactivity (no new content), calls to
+// Next() also invoke a rotation check.
 type Tailer struct {
 	path         string
 	file         *os.File
@@ -19,9 +24,8 @@ type Tailer struct {
 }
 
 // NewTailer creates a new Tailer object configured to read data from the file
-// at the supplied path (returned on calls to Next()). After idleDuration of
-// file inactivity (no new content), calls to Next() will also invoke a
-// rotation check.
+// at the supplied path (and performing rotation checks after idleDuration of
+// inactivity).
 func NewTailer(path string, idleDuration time.Duration) (*Tailer, error) {
 	t := &Tailer{
 		path:         path,

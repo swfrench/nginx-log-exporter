@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/swfrench/nginx-log-exporter/file"
 	"github.com/swfrench/nginx-log-exporter/metrics"
-	"github.com/swfrench/nginx-log-exporter/tailer"
 )
 
 const (
@@ -37,7 +37,7 @@ type parsedLogLine struct {
 	BytesSent   float64
 }
 
-func parseJson(b []byte) (*parsedLogLine, error) {
+func parseJSON(b []byte) (*parsedLogLine, error) {
 	line := &struct {
 		Time        string  `json:"time"`
 		Request     string  `json:"request"`
@@ -67,12 +67,12 @@ func parseJson(b []byte) (*parsedLogLine, error) {
 	}, nil
 }
 
-func parseClf(b []byte) (*parsedLogLine, error) {
+func parseCLF(b []byte) (*parsedLogLine, error) {
 	line := &struct {
 		// Note: Most of these are unused for now.
 		RemoteHost  string
-		ClientId    string
-		UserId      string
+		ClientID    string
+		UserID      string
 		Time        string
 		TimeZone    string
 		Request     string
@@ -85,7 +85,7 @@ func parseClf(b []byte) (*parsedLogLine, error) {
 	}
 
 	s := string(b)
-	if numItems, err := fmt.Sscanf(s, "%s %s %s [%s %5s] %q %s %f", &line.RemoteHost, &line.ClientId, &line.UserId, &line.Time, &line.TimeZone, &line.Request, &line.Status, &line.BytesSent); err != nil {
+	if numItems, err := fmt.Sscanf(s, "%s %s %s [%s %5s] %q %s %f", &line.RemoteHost, &line.ClientID, &line.UserID, &line.Time, &line.TimeZone, &line.Request, &line.Status, &line.BytesSent); err != nil {
 		return nil, fmt.Errorf("Could not parse log line: %v", err)
 	} else if want := 8; numItems < want {
 		return nil, fmt.Errorf("Could not parse log line: expected %d fields, extracted %d (full line: \"%s\")", want, numItems, s)
@@ -122,7 +122,7 @@ func newKeyedCounter() *keyedCounter {
 
 func (c *keyedCounter) inc(key string, annotations map[string]string) {
 	if _, ok := c.counts[key]; ok {
-		c.counts[key].total += 1
+		c.counts[key].total++
 		return
 	}
 
@@ -183,17 +183,17 @@ type logStats struct {
 // Consumer implements periodic polling of the supplied nginx access log
 // tailer, aggregation of response counts from the returned log lines.
 type Consumer struct {
-	Period                     time.Duration
-	tailer                     tailer.TailerT
-	manager                    metrics.MetricsManagerT
-	paths                      map[string]bool
-	stop                       chan bool
-	initFinshed                time.Time
-	parse                      func([]byte) (*parsedLogLine, error)
-	httpResposeCounter         metrics.CounterT
-	detailedHttpResposeCounter metrics.CounterT
-	httpResposeTimeHist        metrics.HistogramT
-	httpResposeByteSentHist    metrics.HistogramT
+	Period                      time.Duration
+	tailer                      file.TailerT
+	manager                     metrics.ManagerT
+	paths                       map[string]bool
+	stop                        chan bool
+	initFinshed                 time.Time
+	parse                       func([]byte) (*parsedLogLine, error)
+	httpResponseCounter         metrics.CounterT
+	detailedHTTPResponseCounter metrics.CounterT
+	httpResponseTimeHist        metrics.HistogramT
+	httpResponseByteSentHist    metrics.HistogramT
 }
 
 // NewConsumer returns a Consumer polling the supplied tailer for new access
@@ -202,7 +202,7 @@ type Consumer struct {
 // created during init in NewConsumer. Log lines provided by the tailer are
 // expected to be in the supplied format, of which "JSON" (see README.md) and
 // "CLF" are supported.
-func NewConsumer(period time.Duration, tailer tailer.TailerT, manager metrics.MetricsManagerT, paths []string, format string) (*Consumer, error) {
+func NewConsumer(period time.Duration, tailer file.TailerT, manager metrics.ManagerT, paths []string, format string) (*Consumer, error) {
 	c := &Consumer{
 		Period:  period,
 		tailer:  tailer,
@@ -216,57 +216,51 @@ func NewConsumer(period time.Duration, tailer tailer.TailerT, manager metrics.Me
 
 	switch format {
 	case "JSON":
-		c.parse = parseJson
+		c.parse = parseJSON
 	case "CLF":
-		c.parse = parseClf
+		c.parse = parseCLF
 	default:
 		return nil, fmt.Errorf("Unsupported log format: \"%s\"", format)
 	}
 
-	if err := manager.AddCounter("http_response_count", "Counts of responses by status code", []string{
+	var err error
+
+	if err = manager.AddCounter("http_response_count", "Counts of responses by status code", []string{
 		"status_code",
 	}); err != nil {
 		return nil, err
 	}
-	if counter, err := manager.GetCounter("http_response_count"); err != nil {
+	if c.httpResponseCounter, err = manager.GetCounter("http_response_count"); err != nil {
 		return nil, err
-	} else {
-		c.httpResposeCounter = counter
 	}
 
-	if err := manager.AddCounter("detailed_http_response_count", "Counts of responses by status code, path, and method", []string{
+	if err = manager.AddCounter("detailed_http_response_count", "Counts of responses by status code, path, and method", []string{
 		"status_code",
 		"path",
 		"method",
 	}); err != nil {
 		return nil, err
 	}
-	if counter, err := manager.GetCounter("detailed_http_response_count"); err != nil {
+	if c.detailedHTTPResponseCounter, err = manager.GetCounter("detailed_http_response_count"); err != nil {
 		return nil, err
-	} else {
-		c.detailedHttpResposeCounter = counter
 	}
 
-	if err := manager.AddHistogram("http_response_time", "Response time (seconds) by status code", []string{
+	if err = manager.AddHistogram("http_response_time", "Response time (seconds) by status code", []string{
 		"status_code",
 	}, nil); err != nil {
 		return nil, err
 	}
-	if hist, err := manager.GetHistogram("http_response_time"); err != nil {
+	if c.httpResponseTimeHist, err = manager.GetHistogram("http_response_time"); err != nil {
 		return nil, err
-	} else {
-		c.httpResposeTimeHist = hist
 	}
 
-	if err := manager.AddHistogram("http_response_bytes_sent", "Response size (bytes) by status code", []string{
+	if err = manager.AddHistogram("http_response_bytes_sent", "Response size (bytes) by status code", []string{
 		"status_code",
 	}, bytesSentBuckets); err != nil {
 		return nil, err
 	}
-	if hist, err := manager.GetHistogram("http_response_bytes_sent"); err != nil {
+	if c.httpResponseByteSentHist, err = manager.GetHistogram("http_response_bytes_sent"); err != nil {
 		return nil, err
-	} else {
-		c.httpResposeByteSentHist = hist
 	}
 
 	c.initFinshed = time.Now()
@@ -317,7 +311,7 @@ func (c *Consumer) consumeBytes(b []byte) error {
 	}
 
 	for code, count := range stats.statusCounts.counts {
-		if err := c.httpResposeCounter.Add(map[string]string{
+		if err := c.httpResponseCounter.Add(map[string]string{
 			"status_code": code,
 		}, count.total); err != nil {
 			return err
@@ -332,19 +326,19 @@ func (c *Consumer) consumeBytes(b []byte) error {
 				labels[k] = v
 			}
 		}
-		if err := c.detailedHttpResposeCounter.Add(labels, count.total); err != nil {
+		if err := c.detailedHTTPResponseCounter.Add(labels, count.total); err != nil {
 			return err
 		}
 	}
 	for code, observations := range stats.latencyObservations.observations {
-		if err := c.httpResposeTimeHist.Observe(map[string]string{
+		if err := c.httpResponseTimeHist.Observe(map[string]string{
 			"status_code": code,
 		}, observations.seen); err != nil {
 			return err
 		}
 	}
 	for code, observations := range stats.bytesSentObservations.observations {
-		if err := c.httpResposeByteSentHist.Observe(map[string]string{
+		if err := c.httpResponseByteSentHist.Observe(map[string]string{
 			"status_code": code,
 		}, observations.seen); err != nil {
 			return err
@@ -369,7 +363,6 @@ func (c *Consumer) Run() error {
 			return fmt.Errorf("Could not export log content: %v", err)
 		}
 	}
-	return nil
 }
 
 // Stop signals that polling should cease in Run and the latter should return

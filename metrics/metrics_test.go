@@ -16,7 +16,7 @@ import (
 )
 
 func TestCounterUpdates(t *testing.T) {
-	m := metrics.NewMetricsManager(map[string]string{
+	m := metrics.NewManager(map[string]string{
 		"foo": "bar",
 	})
 
@@ -85,7 +85,7 @@ func TestCounterUpdates(t *testing.T) {
 }
 
 func TestHistogramUpdates(t *testing.T) {
-	m := metrics.NewMetricsManager(map[string]string{
+	m := metrics.NewManager(map[string]string{
 		"foo": "bar",
 	})
 
@@ -180,7 +180,7 @@ func TestHistogramUpdates(t *testing.T) {
 }
 
 func TestHistogramUpdatesWithCustomBuckets(t *testing.T) {
-	m := metrics.NewMetricsManager(map[string]string{
+	m := metrics.NewManager(map[string]string{
 		"foo": "bar",
 	})
 

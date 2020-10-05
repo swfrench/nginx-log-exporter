@@ -1,4 +1,4 @@
-package tailer_test
+package file_test
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swfrench/nginx-log-exporter/tailer"
+	"github.com/swfrench/nginx-log-exporter/file"
 )
 
 type RotatingTempFile struct {
@@ -63,7 +63,7 @@ func (s *RotatingTempFile) Rotate() error {
 
 func TestErrorNoFile(t *testing.T) {
 	const testFile = "/this/will/never/exist"
-	_, err := tailer.NewTailer(testFile, time.Second)
+	_, err := file.NewTailer(testFile, time.Second)
 	if err == nil {
 		t.Fatalf("Expected NewTailer to return an error")
 	}
@@ -88,7 +88,7 @@ func TestRead(t *testing.T) {
 	}
 	defer os.Remove(logFile.Name())
 
-	tail, err := tailer.NewTailer(logFile.Name(), time.Second)
+	tail, err := file.NewTailer(logFile.Name(), time.Second)
 	if err != nil {
 		t.Fatalf("Could not create tailer: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestReadRotate(t *testing.T) {
 	testIdleTime := 10 * time.Millisecond
 	testContent := [][]byte{[]byte("foo"), []byte("bar"), []byte("baz")}
 
-	tail, err := tailer.NewTailer(rotate.Name, testIdleTime)
+	tail, err := file.NewTailer(rotate.Name, testIdleTime)
 	if err != nil {
 		t.Fatalf("Could not create tailer: %v", err)
 	}
