@@ -7,7 +7,7 @@ package mock_metrics
 import (
 	gomock "github.com/golang/mock/gomock"
 	prometheus "github.com/prometheus/client_golang/prometheus"
-	metrics "github.com/swfrench/nginx-log-exporter/metrics"
+	metrics "github.com/swfrench/nginx-log-exporter/internal/metrics"
 	reflect "reflect"
 	time "time"
 )
