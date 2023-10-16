@@ -1,7 +1,5 @@
 # Export metrics from nginx access logs to Prometheus
 
-[![main build status](https://travis-ci.com/swfrench/nginx-log-exporter.svg?branch=main)](https://travis-ci.com/swfrench/nginx-log-exporter)
-
 A small utility for exporting metrics inferred from nginx access logs to
 [Prometheus](https://prometheus.io).
 
