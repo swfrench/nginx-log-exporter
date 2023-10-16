@@ -15,15 +15,29 @@ import (
 )
 
 const (
-	// CLF contains a time.Parse reference timestamp for strftime "%d/%b/%Y:%H:%M:%S %z" used in CLF.
+	// CLF contains a time.Parse reference timestamp for strftime
+	// "%d/%b/%Y:%H:%M:%S %z" used in CLF.
 	CLF = "02/Jan/2006:15:04:05 -0700"
 
 	// ISO8601 contains a time.Parse reference timestamp for ISO 8601.
 	ISO8601 = "2006-01-02T15:04:05-07:00"
+
+	// ResponseCountMetricName is the name of the metric reporting total number
+	// of response counts.
+	ResponseCountMetricName = "nginx_http_response_total"
+	// ResponseCountDetailedMetricName is the name of the metric reporting total
+	// number of response counts for the configured "detail" paths.
+	ResponseCountDetailedMetricName = "nginx_http_response_detailed_total"
+	// ResponseDurationMetricName is the name of the metric reporting the
+	// distribution of response durations (i.e., processing latency)
+	ResponseDurationMetricName = "nginx_http_response_duration_seconds"
+	// ResponseSizeMetricName is the name of the metric reporting the
+	// distribution of response sizes.
+	ResponseSizeMetricName = "nginx_http_response_size_bytes"
 )
 
 var (
-	// Buckets used with the http_response_bytes_sent metric.
+	// Buckets used with the response-size distribution metric.
 	bytesSentBuckets = []float64{8, 16, 64, 128, 256, 512, 1024, 2048, 4096}
 )
 
@@ -225,41 +239,41 @@ func NewConsumer(period time.Duration, tailer file.TailerT, manager metrics.Mana
 
 	var err error
 
-	if err = manager.AddCounter("http_response_count", "Counts of responses by status code", []string{
+	if err = manager.AddCounter(ResponseCountMetricName, "Total number of responses by status code", []string{
 		"status_code",
 	}); err != nil {
 		return nil, err
 	}
-	if c.httpResponseCounter, err = manager.GetCounter("http_response_count"); err != nil {
+	if c.httpResponseCounter, err = manager.GetCounter(ResponseCountMetricName); err != nil {
 		return nil, err
 	}
 
-	if err = manager.AddCounter("detailed_http_response_count", "Counts of responses by status code, path, and method", []string{
+	if err = manager.AddCounter(ResponseCountDetailedMetricName, "Total number of responses by status code, path, and method", []string{
 		"status_code",
 		"path",
 		"method",
 	}); err != nil {
 		return nil, err
 	}
-	if c.detailedHTTPResponseCounter, err = manager.GetCounter("detailed_http_response_count"); err != nil {
+	if c.detailedHTTPResponseCounter, err = manager.GetCounter(ResponseCountDetailedMetricName); err != nil {
 		return nil, err
 	}
 
-	if err = manager.AddHistogram("http_response_time", "Response time (seconds) by status code", []string{
+	if err = manager.AddHistogram(ResponseDurationMetricName, "Distribution of response duration (seconds) by status code", []string{
 		"status_code",
 	}, nil); err != nil {
 		return nil, err
 	}
-	if c.httpResponseTimeHist, err = manager.GetHistogram("http_response_time"); err != nil {
+	if c.httpResponseTimeHist, err = manager.GetHistogram(ResponseDurationMetricName); err != nil {
 		return nil, err
 	}
 
-	if err = manager.AddHistogram("http_response_bytes_sent", "Response size (bytes) by status code", []string{
+	if err = manager.AddHistogram(ResponseSizeMetricName, "Distribution of response size (bytes) by status code", []string{
 		"status_code",
 	}, bytesSentBuckets); err != nil {
 		return nil, err
 	}
-	if c.httpResponseByteSentHist, err = manager.GetHistogram("http_response_bytes_sent"); err != nil {
+	if c.httpResponseByteSentHist, err = manager.GetHistogram(ResponseSizeMetricName); err != nil {
 		return nil, err
 	}
 

@@ -182,21 +182,21 @@ func mockInit(ctrl *gomock.Controller) (*mock_tailer.MockTailerT, *mock_metrics.
 	t := mock_tailer.NewMockTailerT(ctrl)
 	m := mock_metrics.NewMockManagerT(ctrl)
 
-	m.EXPECT().AddCounter("http_response_count", "Counts of responses by status code", []string{
+	m.EXPECT().AddCounter(consumer.ResponseCountMetricName, gomock.Any(), []string{
 		"status_code",
 	}).Return(nil)
 
-	m.EXPECT().AddCounter("detailed_http_response_count", "Counts of responses by status code, path, and method", []string{
+	m.EXPECT().AddCounter(consumer.ResponseCountDetailedMetricName, gomock.Any(), []string{
 		"status_code",
 		"path",
 		"method",
 	}).Return(nil)
 
-	m.EXPECT().AddHistogram("http_response_time", "Response time (seconds) by status code", []string{
+	m.EXPECT().AddHistogram(consumer.ResponseDurationMetricName, gomock.Any(), []string{
 		"status_code",
 	}, gomock.Nil()).Return(nil)
 
-	m.EXPECT().AddHistogram("http_response_bytes_sent", "Response size (bytes) by status code", []string{
+	m.EXPECT().AddHistogram(consumer.ResponseSizeMetricName, gomock.Any(), []string{
 		"status_code",
 	}, FloatElementsEq([]float64{8, 16, 64, 128, 256, 512, 1024, 2048, 4096})).Return(nil)
 
@@ -207,10 +207,10 @@ func mockInit(ctrl *gomock.Controller) (*mock_tailer.MockTailerT, *mock_metrics.
 		responseSize:           mock_metrics.NewMockHistogramT(ctrl),
 	}
 
-	m.EXPECT().GetCounter("http_response_count").AnyTimes().Return(s.responseCounts, nil)
-	m.EXPECT().GetCounter("detailed_http_response_count").AnyTimes().Return(s.responseCountsDetailed, nil)
-	m.EXPECT().GetHistogram("http_response_time").AnyTimes().Return(s.responseTime, nil)
-	m.EXPECT().GetHistogram("http_response_bytes_sent").AnyTimes().Return(s.responseSize, nil)
+	m.EXPECT().GetCounter(consumer.ResponseCountMetricName).AnyTimes().Return(s.responseCounts, nil)
+	m.EXPECT().GetCounter(consumer.ResponseCountDetailedMetricName).AnyTimes().Return(s.responseCountsDetailed, nil)
+	m.EXPECT().GetHistogram(consumer.ResponseDurationMetricName).AnyTimes().Return(s.responseTime, nil)
+	m.EXPECT().GetHistogram(consumer.ResponseSizeMetricName).AnyTimes().Return(s.responseSize, nil)
 
 	return t, m, s
 }

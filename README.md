@@ -9,14 +9,14 @@ A small utility for exporting metrics inferred from nginx access logs to
 
 The following metrics are currently supported:
 
-*   Response counts, by HTTP response code
-*   "Detailed" response counts, by HTTP response code, method, and path (only
-    enabled for a configurable set of exact-match paths; see
-    `-monitored_paths`)
-*   Response time (i.e. request processing latency) distribution, by HTTP
-    response code
-*   Response size (i.e. bytes sent, headers inclusive) distribution, by HTTP
-    response code
+*   `nginx_http_response_total` - Total response count, by HTTP response code
+*   `nginx_http_response_detailed_total` - "Detailed" total response count, by
+     HTTP response code, method, and path (only enabled for a configurable set
+     of exact-match paths; see `-monitored_paths`)
+*   `nginx_http_response_duration_seconds` - Response duration (i.e., request
+    processing latency) distribution, by HTTP response code
+*   `nginx_http_response_size_bytes` - Response size (i.e., bytes sent, headers
+    inclusive) distribution, by HTTP response code
 
 ## Building
 
