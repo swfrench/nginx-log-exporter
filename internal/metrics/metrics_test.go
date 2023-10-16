@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	"github.com/swfrench/nginx-log-exporter/metrics"
+	"github.com/swfrench/nginx-log-exporter/internal/metrics"
 )
 
 func TestCounterUpdates(t *testing.T) {

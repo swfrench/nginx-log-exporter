@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swfrench/nginx-log-exporter/consumer"
-	"github.com/swfrench/nginx-log-exporter/file"
-	"github.com/swfrench/nginx-log-exporter/metrics"
+	"github.com/swfrench/nginx-log-exporter/internal/consumer"
+	"github.com/swfrench/nginx-log-exporter/internal/file"
+	"github.com/swfrench/nginx-log-exporter/internal/metrics"
 
 	"cloud.google.com/go/compute/metadata"
 

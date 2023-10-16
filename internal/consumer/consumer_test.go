@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	"github.com/swfrench/nginx-log-exporter/consumer"
-	"github.com/swfrench/nginx-log-exporter/file/mock_tailer"
-	"github.com/swfrench/nginx-log-exporter/metrics/mock_metrics"
+	"github.com/swfrench/nginx-log-exporter/internal/consumer"
+	"github.com/swfrench/nginx-log-exporter/internal/file/mock_tailer"
+	"github.com/swfrench/nginx-log-exporter/internal/metrics/mock_metrics"
 )
 
 var (
