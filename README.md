@@ -1,5 +1,7 @@
 # Export metrics from nginx access logs to Prometheus
 
+![build-and-test status](https://github.com/swfrench/nginx-log-exporter/actions/workflows/build-and-test.yml/badge.svg)
+
 A small utility for exporting metrics inferred from nginx access logs to
 [Prometheus](https://prometheus.io).
 
