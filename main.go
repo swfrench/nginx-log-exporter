@@ -46,7 +46,7 @@ func parseCustomLabels() (map[string]string, error) {
 			if pair := strings.Split(elem, "="); len(pair) == 2 {
 				labels[pair[0]] = pair[1]
 			} else {
-				return nil, fmt.Errorf("Could not parse key=value pair: %v", elem)
+				return nil, fmt.Errorf("could not parse key=value pair: %v", elem)
 			}
 		}
 	}
@@ -72,17 +72,17 @@ func parseMonitoredPaths() ([]string, error) {
 
 func getLabelsFromMetadataService() (map[string]string, error) {
 	if !metadata.OnGCE() {
-		return nil, fmt.Errorf("Metadata service is unavailable when not on GCE")
+		return nil, fmt.Errorf("metadata service is unavailable when not on GCE")
 	}
 
 	instance, err := metadata.InstanceName()
 	if err != nil {
-		return nil, fmt.Errorf("Could not retrieve instance name from metadata service: %v", err)
+		return nil, fmt.Errorf("could not retrieve instance name from metadata service: %v", err)
 	}
 
 	zone, err := metadata.Zone()
 	if err != nil {
-		return nil, fmt.Errorf("Could not retrieve zone name from metadata service: %v", err)
+		return nil, fmt.Errorf("could not retrieve zone name from metadata service: %v", err)
 	}
 
 	return map[string]string{

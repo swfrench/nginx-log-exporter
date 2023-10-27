@@ -64,12 +64,12 @@ func parseJSON(b []byte) (*parsedLogLine, error) {
 	}
 
 	if err := json.Unmarshal(b, line); err != nil {
-		return nil, fmt.Errorf("Could not parse log line: %v", err)
+		return nil, fmt.Errorf("could not parse log line: %v", err)
 	}
 
 	t, err := time.Parse(ISO8601, line.Time)
 	if err != nil {
-		return nil, fmt.Errorf("Could not parse log line timestamp: %v", err)
+		return nil, fmt.Errorf("could not parse log line timestamp: %v", err)
 	}
 
 	return &parsedLogLine{
@@ -100,14 +100,14 @@ func parseCLF(b []byte) (*parsedLogLine, error) {
 
 	s := string(b)
 	if numItems, err := fmt.Sscanf(s, "%s %s %s [%s %5s] %q %s %f", &line.RemoteHost, &line.ClientID, &line.UserID, &line.Time, &line.TimeZone, &line.Request, &line.Status, &line.BytesSent); err != nil {
-		return nil, fmt.Errorf("Could not parse log line: %v", err)
+		return nil, fmt.Errorf("could not parse log line: %v", err)
 	} else if want := 8; numItems < want {
-		return nil, fmt.Errorf("Could not parse log line: expected %d fields, extracted %d (full line: \"%s\")", want, numItems, s)
+		return nil, fmt.Errorf("could not parse log line: expected %d fields, extracted %d (full line: \"%s\")", want, numItems, s)
 	}
 
 	t, err := time.Parse(CLF, fmt.Sprintf("%s %s", line.Time, line.TimeZone))
 	if err != nil {
-		return nil, fmt.Errorf("Could not parse log line timestamp: %v", err)
+		return nil, fmt.Errorf("could not parse log line timestamp: %v", err)
 	}
 
 	return &parsedLogLine{
@@ -234,7 +234,7 @@ func NewConsumer(period time.Duration, tailer file.TailerT, manager metrics.Mana
 	case "CLF":
 		c.parse = parseCLF
 	default:
-		return nil, fmt.Errorf("Unsupported log format: \"%s\"", format)
+		return nil, fmt.Errorf("unsupported log format: \"%s\"", format)
 	}
 
 	var err error
@@ -372,9 +372,9 @@ func (c *Consumer) Run() error {
 		}
 		b, err := c.tailer.Next()
 		if err != nil {
-			return fmt.Errorf("Could not retrieve log content: %v", err)
+			return fmt.Errorf("could not retrieve log content: %v", err)
 		} else if err := c.consumeBytes(b); err != nil {
-			return fmt.Errorf("Could not export log content: %v", err)
+			return fmt.Errorf("could not export log content: %v", err)
 		}
 	}
 }

@@ -189,7 +189,7 @@ func (m *Manager) AddHistogram(name, help string, labelNames []string, buckets [
 func (m *Manager) GetCounter(name string) (CounterT, error) {
 	c, ok := m.counters[name]
 	if !ok {
-		return nil, fmt.Errorf("Unknown counter metric: %s", name)
+		return nil, fmt.Errorf("unknown counter metric: %s", name)
 	}
 	return c, nil
 }
@@ -200,7 +200,7 @@ func (m *Manager) GetCounter(name string) (CounterT, error) {
 func (m *Manager) GetHistogram(name string) (HistogramT, error) {
 	h, ok := m.histograms[name]
 	if !ok {
-		return nil, fmt.Errorf("Unknown histogram metric: %s", name)
+		return nil, fmt.Errorf("unknown histogram metric: %s", name)
 	}
 	return h, nil
 }
@@ -219,7 +219,7 @@ func (m *Manager) UnregisterAll() error {
 		}
 	}
 	if len(failed) > 0 {
-		return fmt.Errorf("Could not unregister: %s", strings.Join(failed, ", "))
+		return fmt.Errorf("could not unregister: %s", strings.Join(failed, ", "))
 	}
 	return nil
 }

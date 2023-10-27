@@ -102,7 +102,7 @@ func TestRead(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Error fetching next byte slice: %v", err)
 		}
-		if want, got := content, b; bytes.Compare(want, got) != 0 {
+		if want, got := content, b; !bytes.Equal(want, got) {
 			t.Fatalf("Expected to read %v, got %v", want, got)
 		}
 	}
@@ -155,7 +155,7 @@ func TestReadRotate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Error fetching next byte slice: %v", err)
 		}
-		if want, got := content, b; bytes.Compare(want, got) != 0 {
+		if want, got := content, b; !bytes.Equal(want, got) {
 			t.Fatalf("Expected to read %v, got %v", want, got)
 		}
 
